@@ -46,3 +46,7 @@ Network Trash Folder
 Temporary Items
 .apdisk
 *.pdb
+*.obj
+build/main.map
+*.exe
+*.ppm

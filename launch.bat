@@ -1,6 +1,6 @@
 @echo off
-pushd ..\data
+pushd .\build
 
-..\build\win32_handmade.exe
+main.exe
 
 popd
