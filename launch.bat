@@ -1,6 +1,6 @@
 @echo off
 pushd .\build
 
-main.exe
+main.exe > test.ppm
 
 popd
