@@ -2,19 +2,80 @@
 #include <cmath>
 #include <cstdlib>
 #include <float.h>
+#include <random>
+
+std::default_random_engine generator;
+std::uniform_real_distribution<float> distribution(0.0f,1.0f);
+#define RAN01() distribution(generator)
 
 #include "vec3.h"
 #include "ray.h"
+#include "camera.h"
 #include "hitable.h"
 #include "hitable_list.h"
+#include "material.h"
 #include "sphere.h"
 
-vec3 color( const ray &r, hitable *world )
+#define OUT_WIDTH 1920;
+#define OUT_HEIGHT 1080;
+#define NB_SAMPLES 3000; // samples per pixel for AA
+
+float schlick(float cosine, float ref_idx)
+{
+    float r0 = (1-ref_idx) / (1+ref_idx);
+    r0 = r0 * r0;
+    return r0 + (1-r0)*powf((1-cosine), 5);
+}
+
+vec3 reflect(const vec3 &v, const vec3 &n)
+{
+    return v - 2.0f * dot(v,n)*n;
+}
+
+bool refract(const vec3 &v, const vec3 &n, float ni_over_nt, vec3& refracted )
+{
+    vec3 uv = unit_vector(v);
+    float dt = dot(uv, n);
+    float discriminant = 1.0f - ni_over_nt*ni_over_nt*(1.0f-dt*dt);
+    if (discriminant > 0.0f)
+    {
+        refracted = ni_over_nt*(uv-n*dt) - n*sqrtf(discriminant);
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+
+vec3 random_in_unit_sphere()
+{
+    vec3 p;
+    do
+    {
+        // gen a point in unit cube -1;1
+        p = 2.0f * vec3( RAN01(), RAN01(), RAN01() ) - vec3( 1.0f, 1.0f, 1.0f );
+    } while( p.squared_length() >= 1.0f );
+    
+    return p;
+}
+
+vec3 color( const ray &r, hitable *world, int depth )
 {
     hit_record rec;
-    if (world->hit(r, 0.0f, FLT_MAX, rec))
+    if (world->hit(r, 0.001f, FLT_MAX, rec))
     {
-        return 0.5f*vec3(rec.normal.x()+1, rec.normal.y()+1, rec.normal.z()+1);
+        ray scattered;
+        vec3 attenuation;
+        if ((depth < 50) && rec.mat_ptr->scatter(r, rec, attenuation, scattered))
+        {
+            // recursive
+            return attenuation * color(scattered, world, depth+1);
+        }
+        else
+        {
+            return vec3(0,0,0);
+        }
     }
     else
     {
@@ -29,31 +90,41 @@ vec3 color( const ray &r, hitable *world )
 
 int main( int argc, char **argv )
 {
-    int nx = 200;
-    int ny = 100;
+    int nx = OUT_WIDTH;
+    int ny = OUT_HEIGHT;
+    int ns = NB_SAMPLES;
+    
     std::cout << "P3\n" << nx << " " << ny << "\n255\n";
     
-    // screen is a 4/2 ratio rect at z = -1. Camera is at 0,0,0.
-    vec3 lower_left_corner(-2.0f, -1.0f, -1.0f);
-    vec3 horizontal(4.0f, 0.0f, 0.0f);
-    vec3 vertical(0.0f, 2.0f, 0.0f);
-    vec3 origin(0.0f, 0.0f, 0.0f);
+    hitable *list[6];
+    list[0] = new sphere(vec3(0,0,-1), 0.5f, new lambertian(vec3(0.8f, 0.3f, 0.3f)));
+    list[1] =new sphere(vec3(0,-100.5f,-1), 100.0f, new lambertian(vec3(0.8f, 0.8f, 0.0f)));
+    list[2] = new sphere(vec3(1,0,-1), 0.5f, new metal(vec3(0.8f, 0.6f, 0.2f), 0.3f));
+    list[3] = new sphere(vec3(-1,0,-1), 0.5f, new dielectric(1.5f));
+    list[4] = new sphere(vec3(-1,0,-1), -0.45f, new dielectric(1.5f));
+    list[5] = new sphere(vec3(-0.3f,-0.05f,-0.5f), 0.15f, new dielectric(2.5f));
     
-    hitable *list[2];
-    list[0] = new sphere(vec3(0,0,-1), 0.5);
-    list[1] = new sphere(vec3(0,-100.5,-1), 100);
-    hitable *world = new hitable_list(list, 2);
+    hitable *world = new hitable_list(list, 6);
+    camera cam;
     
-    for ( int j = ny-1; j >=0; --j )
+    for ( int j = ny-1; j >=0; --j ) // top to bottom
     {
-        for ( int i = 0; i < nx; ++i )
+        for ( int i = 0; i < nx; ++i ) // left to right
         {
-            float u = float(i) / float(nx);
-            float v = float(j) / float(ny);
+            vec3 col(0,0,0);
+            for ( int s = 0; s < ns; ++s ) // multisample
+            {
+                float u = float(i+RAN01()) / float(nx);
+                float v = float(j+RAN01()) / float(ny);
+                
+                ray r = cam.get_ray(u,v);
+                col += color(r, world, 0);
+            }
+            // resolve AA
+            col /= (float)ns;
             
-            ray r(origin, lower_left_corner + u*horizontal + v*vertical);
-            vec3 col = color(r, world);
-            
+            // gamma correction
+            col = vec3(sqrtf(col[0]), sqrtf(col[1]), sqrtf(col[2]) );
             int ir = int(255.99f*col.r());
             int ig = int(255.99f*col.g());
             int ib = int(255.99f*col.b());

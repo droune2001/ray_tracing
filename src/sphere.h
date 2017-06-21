@@ -6,15 +6,18 @@
      public:
      
      sphere() {}
-     sphere(vec3 cen, float r) : center(cen), radius(r) {}
+     sphere(vec3 cen, float r, material *the_mat) : center(cen), radius(r), mat(the_mat) {}
      virtual bool hit(const ray &r, float t_min, float t_max, hit_record &rec ) const override;
      
-     vec3 center;
-     float radius;
+     material *mat = nullptr;
+     vec3 center = vec3(0,0,0);
+     float radius = 1.0f;
  };
  
  bool sphere::hit(const ray &r, float t_min, float t_max, hit_record &rec) const
  {
+     rec.mat_ptr = mat;
+     
      // NOTE(nfauvet): removed 4's and 2's that cancel each others out.
      vec3 oc = r.origin() - center;
      float a = dot( r.direction(), r.direction() );
