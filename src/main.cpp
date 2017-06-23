@@ -6,6 +6,11 @@
 #include <random>
 #include <chrono>
 #include <iomanip> // set::setprecision
+#include <thread>
+#include <mutex>
+#include <queue>
+#include <condition_variable>
+#include <assert.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define _CRT_SECURE_NO_WARNINGS
@@ -26,11 +31,16 @@ std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 #include "hitable_list.h"
 #include "material.h"
 #include "sphere.h"
+#include "thread_pool.h"
 
-#define OUT_WIDTH 200
-#define OUT_HEIGHT 100
+// NOTE(nfauvet): pgcd(1920,1080) = 120
+#define OUT_WIDTH 1920
+#define OUT_HEIGHT 1080
 #define NB_SAMPLES 300 // samples per pixel for AA
 #define RECURSE_DEPTH 50
+#define TILE_WIDTH 60
+#define TILE_HEIGHT 12
+#define NB_THREADS 8
 
 vec3 color( const ray &r, hitable *world, int depth )
 {
@@ -64,7 +74,7 @@ vec3 color( const ray &r, hitable *world, int depth )
 
 hitable *random_scene()
 {
-    int n = 50;//500
+    int n = 500;//500
     int surf_radius = ((int)sqrtf((float)n)) / 2 - 1;
     
     hitable **list = new hitable*[n+1];
@@ -111,6 +121,83 @@ hitable *random_scene()
     return new hitable_list(list, i);
 }
 
+static std::mutex g_console_mutex;
+static int g_total_nb_tiles = 0;
+static int g_nb_tiles_finished = 0;
+static float g_percent_complete = 0.0f;
+
+struct compute_tile_task : public task
+{
+    compute_tile_task() : task() {}
+    
+    virtual ~compute_tile_task() override 
+    {
+        std::unique_lock<std::mutex> g(g_console_mutex);
+        ++g_nb_tiles_finished;
+        g_percent_complete = 100.0f * 
+            (float)g_nb_tiles_finished / 
+            (float)g_total_nb_tiles;
+        //std::cout << "x - delete thread " << std::this_thread::get_id() << "\n";
+        std::cout << std::fixed << std::setprecision(2) 
+            << g_percent_complete << "%\r";
+    }
+    
+    virtual void run() override 
+    {
+        for( int j = tile_height-1; j >= 0; --j )
+        {
+            int y_in_texture_space = tile_origin_y + j;
+            int y_in_buffer_space = (image_height - 1) - y_in_texture_space;
+            unsigned int *line_buffer_ptr = 
+                shared_buffer + 
+                y_in_buffer_space * image_width + 
+                tile_origin_x;
+            
+            for( int i = 0; i < tile_width; ++i )
+            {
+                vec3 col(0,0,0);
+                for ( int s = 0; s < samples; ++s ) // multisample
+                {
+                    float u = float(tile_origin_x + i + RAN01()) / float(image_width);
+                    float v = float(tile_origin_y + j + RAN01()) / float(image_height);
+                    
+                    ray r = cam->get_ray(u,v);
+                    col += color(r, world, 0);
+                }
+                // resolve AA
+                col /= (float)samples;
+                
+                // gamma correction
+                col = vec3(sqrtf(col[0]), sqrtf(col[1]), sqrtf(col[2]) );
+                unsigned int ir = unsigned int(255.99f*col.r());
+                unsigned int ig = unsigned int(255.99f*col.g());
+                unsigned int ib = unsigned int(255.99f*col.b());
+                
+                // 0xABGR
+                *line_buffer_ptr++ = ( 0xff000000 | (ib << 16) | (ig << 8) | (ir << 0) );
+            }
+        }
+    }
+    
+    virtual void showTask() override 
+    {
+        std::unique_lock<std::mutex> g(g_console_mutex);
+        //std::cout << "thread " << "( " << tile_origin_x << ", " << tile_origin_y << ")" 
+        //<< " id(" << std::this_thread::get_id() << ") working...\n";
+    }
+    
+    int tile_origin_x = 0;
+    int tile_origin_y = 0;
+    int tile_width = 1;
+    int tile_height = 1;
+    int image_width = 1;
+    int image_height = 1;
+    int samples = 1;
+    unsigned int *shared_buffer;
+    hitable *world;
+    camera *cam;
+};
+
 int main( int argc, char **argv )
 {
     int nx = OUT_WIDTH;
@@ -122,6 +209,7 @@ int main( int argc, char **argv )
     std::cout << "Resolution: " << nx << "x" << ny << "\n";
     std::cout << "Samples per pixel: " << ns << "\n";
     std::cout << "Bounce depth: " << RECURSE_DEPTH << "\n";
+    std::cout << "Number of Threads: " << NB_THREADS << "\n";
     
     unsigned int *image_buffer = new unsigned int[nx*ny];
     unsigned int *buffer_ptr = image_buffer;
@@ -138,44 +226,61 @@ int main( int argc, char **argv )
                35.0f, float(nx) / float(ny),
                aperture, dist_to_focus);
     
+    // percent compute
     int nb_pixels = nx * ny;
     int pixels_per_percent = nb_pixels / 100;
     int current_nb_pixels = 0;
     int percent = 0;
     
-    auto time_start = std::chrono::high_resolution_clock::now();
+    // tile setup
+    int tile_width = TILE_WIDTH;
+    int tile_height = TILE_HEIGHT;
+    int nb_tile_x = nx / tile_width;
+    int nb_tile_y = ny / tile_height;
+    int remainder_x = nx - ( nb_tile_x * tile_width );
+    int remainder_y = ny - ( nb_tile_y * tile_height );
+    g_total_nb_tiles = nb_tile_x * nb_tile_y;
+    g_nb_tiles_finished = 0;
+    g_percent_complete = 0;
+    // TODO(nfauvet): compute remainder
     
-    for ( int j = ny-1; j >=0; --j ) // top to bottom
+    std::cout << "nb_tile_x: " << nb_tile_x << "\n";
+    std::cout << "nb_tile_y: " << nb_tile_y << "\n";
+    std::cout << "total_nb_tiles: " << g_total_nb_tiles << "\n";
+    
+    thread_pool *pool = new thread_pool(NB_THREADS);
+    
+    auto time_start = std::chrono::high_resolution_clock::now();
+    for ( int j = ny-1; j >=0; j -= tile_height ) // top to bottom
     {
-        for ( int i = 0; i < nx; ++i ) // left to right
+        for ( int i = 0; i < nx; i += tile_width ) // left to right
         {
-            vec3 col(0,0,0);
-            for ( int s = 0; s < ns; ++s ) // multisample
+            compute_tile_task *task = new compute_tile_task();
+            task->tile_origin_x = i;
+            task->tile_origin_y = j - tile_height+1; // bottom left corner of a tile
+            task->tile_width = tile_width;
+            task->tile_height = tile_height;
+            task->image_width = nx;
+            task->image_height = ny;
+            task->samples = ns;
+            task->shared_buffer = image_buffer;
+            task->world = world;
+            task->cam = &cam;
+            
             {
-                float u = float(i+RAN01()) / float(nx);
-                float v = float(j+RAN01()) / float(ny);
-                
-                ray r = cam.get_ray(u,v);
-                col += color(r, world, 0);
+                std::unique_lock<std::mutex> g(g_console_mutex);
+                //std::cout << "create task at " 
+                //<< "( " << task->tile_origin_x << ", " << task->tile_origin_y << ")" 
+                //<< "\n";
             }
-            // resolve AA
-            col /= (float)ns;
             
-            // gamma correction
-            col = vec3(sqrtf(col[0]), sqrtf(col[1]), sqrtf(col[2]) );
-            unsigned int ir = unsigned int(255.99f*col.r());
-            unsigned int ig = unsigned int(255.99f*col.g());
-            unsigned int ib = unsigned int(255.99f*col.b());
-            
-            // 0xABGR
-            *buffer_ptr++ = ( 0xff000000 | (ib << 16) | (ig << 8) | (ir << 0) );
-            
-            if ( (++current_nb_pixels) % pixels_per_percent == 0 )
-            {
-                std::cout << "Generating... " << ++percent << "%\r";
-            }
+            pool->addTask( task );
         }
     }
+    
+    // wait
+    pool->finish();
+    delete pool;
     
     std::cout << "\n";
     

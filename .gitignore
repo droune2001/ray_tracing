@@ -47,6 +47,10 @@ Temporary Items
 .apdisk
 *.pdb
 *.obj
-build/main.map
+build
+bin
 *.exe
 *.ppm
+*.db
+*.opendb
+*.png
