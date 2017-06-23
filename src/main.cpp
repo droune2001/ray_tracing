@@ -1,8 +1,13 @@
 #include <iostream>
+#include <fstream>
 #include <cmath>
 #include <cstdlib>
 #include <float.h>
 #include <random>
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#define _CRT_SECURE_NO_WARNINGS
+#include "stb_image_write.h"
 
 #ifndef PI
 #    define PI 3.14159f
@@ -20,9 +25,10 @@ std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 #include "material.h"
 #include "sphere.h"
 
-#define OUT_WIDTH 1920;
-#define OUT_HEIGHT 1080;
-#define NB_SAMPLES 300; // samples per pixel for AA
+#define OUT_WIDTH 200
+#define OUT_HEIGHT 100
+#define NB_SAMPLES 300 // samples per pixel for AA
+#define RECURSE_DEPTH 50
 
 vec3 color( const ray &r, hitable *world, int depth )
 {
@@ -31,13 +37,15 @@ vec3 color( const ray &r, hitable *world, int depth )
     {
         ray scattered;
         vec3 attenuation;
-        if ((depth < 50) && rec.mat_ptr->scatter(r, rec, attenuation, scattered))
+        if ((depth < RECURSE_DEPTH) && rec.mat_ptr->scatter(r, rec, attenuation, scattered))
         {
             // recursive
             return attenuation * color(scattered, world, depth+1);
         }
         else
         {
+            // why 0?? it will render all black when we unroll
+            // the recursive calls.
             return vec3(0,0,0);
         }
     }
@@ -52,33 +60,86 @@ vec3 color( const ray &r, hitable *world, int depth )
     }
 }
 
+hitable *random_scene()
+{
+    int n = 50;//500
+    int surf_radius = ((int)sqrtf((float)n)) / 2 - 1;
+    
+    hitable **list = new hitable*[n+1];
+    list[0] = new sphere(vec3(0,-1000,0), 1000, new lambertian(vec3(0.5,0.5,0.5)));
+    int i = 1;
+    for( int a = -surf_radius; a < surf_radius; ++a )
+    {
+        for( int b = -surf_radius; b < surf_radius; ++b )
+        {
+            float choose_mat = RAN01();
+            vec3 center( a + 0.9f * RAN01(), 0.2f, b + 0.9f * RAN01() );
+            // keep only spheres outside the middle where we have the big ones
+            if ( (center - vec3(4.0f, 0.2f, 0.0f)).length() > 0.9f )
+            {
+                if ( choose_mat < 0.8f ) // diffuse
+                {
+                    list[i++] = new sphere( 
+                        center, 0.2f,
+                        new lambertian( vec3(RAN01()*RAN01(),
+                                             RAN01()*RAN01(),
+                                             RAN01()*RAN01())));
+                }
+                else if ( choose_mat < 0.95 ) // metal
+                {
+                    list[i++] = new sphere( 
+                        center, 0.2f, 
+                        new metal( vec3(0.5f * ( 1.0f + RAN01()), 
+                                        0.5f * ( 1.0f + RAN01()), 
+                                        0.5f * ( 1.0f + RAN01())),
+                                  0.5f * RAN01()));
+                }
+                else // glass
+                {
+                    list[i++] = new sphere(center, 0.2f, new dielectric(1.5f));
+                }
+            }
+        }
+    }
+    
+    list[i++] = new sphere(vec3(0.0f,1.0f,0.0f), 1.0f, new dielectric(1.5f));
+    list[i++] = new sphere(vec3(-4.0f,1.0f,0.0f),1.0f, new lambertian(vec3(0.4f, 0.2f, 0.1f)));
+    list[i++] = new sphere(vec3(4.0f,1.0f,0.0f),1.0f, new metal(vec3(0.7f, 0.6f, 0.5f), 0.0f));
+    
+    return new hitable_list(list, i);
+}
+
 int main( int argc, char **argv )
 {
     int nx = OUT_WIDTH;
     int ny = OUT_HEIGHT;
     int ns = NB_SAMPLES;
+    const char *out_filename = "out.png";
     
-    std::cout << "P3\n" << nx << " " << ny << "\n255\n";
+    std::cout << "Output file: \"" << out_filename << "\"\n";
+    std::cout << "Resolution: " << nx << "x" << ny << "\n";
+    std::cout << "Samples per pixel: " << ns << "\n";
+    std::cout << "Bounce depth: " << RECURSE_DEPTH << "\n";
     
-    hitable *list[6];
-    list[0] = new sphere(vec3(0,0,-1), 0.5f, new lambertian(vec3(0.8f, 0.3f, 0.3f)));
-    list[1] =new sphere(vec3(0,-100.5f,-1), 100.0f, new lambertian(vec3(0.8f, 0.8f, 0.0f)));
-    list[2] = new sphere(vec3(1,0,-1), 0.5f, new metal(vec3(0.8f, 0.6f, 0.2f), 0.3f));
-    list[3] = new sphere(vec3(-1,0,-1), 0.5f, new dielectric(1.5f));
-    list[4] = new sphere(vec3(-1,0,-1), -0.45f, new dielectric(1.5f));
-    list[5] = new sphere(vec3(-0.3f,-0.05f,-0.5f), 0.15f, new dielectric(2.5f));
+    unsigned int *image_buffer = new unsigned int[nx*ny];
+    unsigned int *buffer_ptr = image_buffer;
     
-    hitable *world = new hitable_list(list, 6);
+    hitable *world = random_scene();
     
     // camera setup
-    vec3 eye = vec3(-2,2,1);
-    vec3 lookat = vec3(0,0,-1);
+    vec3 eye = vec3( 8.0f, 1.5f, 3.0f );
+    vec3 lookat = vec3( 0.0f, 0.0f, 0.0f );
     vec3 up = vec3(0,1,0);
     float dist_to_focus = (eye-lookat).length();
-    float aperture = 2.0f;
+    float aperture = 0.5f;//2.0f;
     camera cam(eye, lookat, up, 
-               30.0f, float(nx) / float(ny),
+               35.0f, float(nx) / float(ny),
                aperture, dist_to_focus);
+    
+    int nb_pixels = nx * ny;
+    int pixels_per_percent = nb_pixels / 100;
+    int current_nb_pixels = 0;
+    int percent = 0;
     
     for ( int j = ny-1; j >=0; --j ) // top to bottom
     {
@@ -98,15 +159,29 @@ int main( int argc, char **argv )
             
             // gamma correction
             col = vec3(sqrtf(col[0]), sqrtf(col[1]), sqrtf(col[2]) );
-            int ir = int(255.99f*col.r());
-            int ig = int(255.99f*col.g());
-            int ib = int(255.99f*col.b());
-            std::cout << ir << " " << ig << " " << ib << "\n";
+            unsigned int ir = unsigned int(255.99f*col.r());
+            unsigned int ig = unsigned int(255.99f*col.g());
+            unsigned int ib = unsigned int(255.99f*col.b());
+            
+            // 0xABGR
+            *buffer_ptr++ = ( 0xff000000 | (ib << 16) | (ig << 8) | (ir << 0) );
+            
+            if ( (++current_nb_pixels) % pixels_per_percent == 0 )
+            {
+                std::cout << "Generating... " << ++percent << "%\r";
+            }
         }
     }
     
-    delete list[0];
-    delete list[1];
+    //ofs.close();
+    
+    int res = stbi_write_png(
+        out_filename, 
+        nx, ny, 4, 
+        (void*)image_buffer, 
+        4*nx); // row stride
+    
+    delete []image_buffer;
     
     return 0;
 }

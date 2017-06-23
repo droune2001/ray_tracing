@@ -7,9 +7,10 @@ set path=C:\home\dev\ray_tracing\bin;%path%
 set path=C:\home\4coder;%path%
 set path=C:\home\openseeit;%path%
 
+REM pour rediriger un flux dans une DOSKY, utiliser $g (=greater)
 DOSKEY ls=dir
 DOSKEY os=openseeit.exe $*
-DOSKEY run=main.exe $g test.ppm $T openseeit.exe test.ppm
-DOSKEY brun=call ..\src\build.bat $T main.exe $g test.ppm $T openseeit.exe test.ppm
+DOSKEY run=main.exe $T openseeit.exe out.png
+DOSKEY brun=call ..\src\build.bat $T main.exe $T openseeit.exe out.png
 
 cd C:\home\dev\ray_tracing\bin
