@@ -4,12 +4,16 @@
 #include <float.h>
 #include <random>
 
+#ifndef PI
+#    define PI 3.14159f
+#endif
 std::default_random_engine generator;
 std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 #define RAN01() distribution(generator)
 
 #include "vec3.h"
 #include "ray.h"
+#include "utils.h"
 #include "camera.h"
 #include "hitable.h"
 #include "hitable_list.h"
@@ -18,47 +22,7 @@ std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 
 #define OUT_WIDTH 1920;
 #define OUT_HEIGHT 1080;
-#define NB_SAMPLES 3000; // samples per pixel for AA
-
-float schlick(float cosine, float ref_idx)
-{
-    float r0 = (1-ref_idx) / (1+ref_idx);
-    r0 = r0 * r0;
-    return r0 + (1-r0)*powf((1-cosine), 5);
-}
-
-vec3 reflect(const vec3 &v, const vec3 &n)
-{
-    return v - 2.0f * dot(v,n)*n;
-}
-
-bool refract(const vec3 &v, const vec3 &n, float ni_over_nt, vec3& refracted )
-{
-    vec3 uv = unit_vector(v);
-    float dt = dot(uv, n);
-    float discriminant = 1.0f - ni_over_nt*ni_over_nt*(1.0f-dt*dt);
-    if (discriminant > 0.0f)
-    {
-        refracted = ni_over_nt*(uv-n*dt) - n*sqrtf(discriminant);
-        return true;
-    }
-    else
-    {
-        return false;
-    }
-}
-
-vec3 random_in_unit_sphere()
-{
-    vec3 p;
-    do
-    {
-        // gen a point in unit cube -1;1
-        p = 2.0f * vec3( RAN01(), RAN01(), RAN01() ) - vec3( 1.0f, 1.0f, 1.0f );
-    } while( p.squared_length() >= 1.0f );
-    
-    return p;
-}
+#define NB_SAMPLES 300; // samples per pixel for AA
 
 vec3 color( const ray &r, hitable *world, int depth )
 {
@@ -105,7 +69,16 @@ int main( int argc, char **argv )
     list[5] = new sphere(vec3(-0.3f,-0.05f,-0.5f), 0.15f, new dielectric(2.5f));
     
     hitable *world = new hitable_list(list, 6);
-    camera cam;
+    
+    // camera setup
+    vec3 eye = vec3(-2,2,1);
+    vec3 lookat = vec3(0,0,-1);
+    vec3 up = vec3(0,1,0);
+    float dist_to_focus = (eye-lookat).length();
+    float aperture = 2.0f;
+    camera cam(eye, lookat, up, 
+               30.0f, float(nx) / float(ny),
+               aperture, dist_to_focus);
     
     for ( int j = ny-1; j >=0; --j ) // top to bottom
     {
