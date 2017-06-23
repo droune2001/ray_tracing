@@ -4,6 +4,8 @@
 #include <cstdlib>
 #include <float.h>
 #include <random>
+#include <chrono>
+#include <iomanip> // set::setprecision
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define _CRT_SECURE_NO_WARNINGS
@@ -141,6 +143,8 @@ int main( int argc, char **argv )
     int current_nb_pixels = 0;
     int percent = 0;
     
+    auto time_start = std::chrono::high_resolution_clock::now();
+    
     for ( int j = ny-1; j >=0; --j ) // top to bottom
     {
         for ( int i = 0; i < nx; ++i ) // left to right
@@ -173,7 +177,17 @@ int main( int argc, char **argv )
         }
     }
     
-    //ofs.close();
+    std::cout << "\n";
+    
+    auto time_end = std::chrono::high_resolution_clock::now();
+    
+    std::cout 
+        << std::fixed << std::setprecision(2)
+        << "Time: " 
+        << std::chrono::duration<double, std::milli>(time_end-time_start).count() 
+        << "ms\n";
+    
+    std::cout << "Writing file.\n";
     
     int res = stbi_write_png(
         out_filename, 
