@@ -11,6 +11,7 @@
 #include <queue>
 #include <condition_variable>
 #include <assert.h>
+#include <utility> // std::swap in c++11
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define _CRT_SECURE_NO_WARNINGS
@@ -25,22 +26,25 @@ std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 
 #include "vec3.h"
 #include "ray.h"
+#include "aabb.h"
 #include "utils.h"
 #include "camera.h"
 #include "hitable.h"
 #include "hitable_list.h"
+#include "bvh.h"
 #include "material.h"
 #include "sphere.h"
 #include "thread_pool.h"
 
 // NOTE(nfauvet): pgcd(1920,1080) = 120
+// 120 = 2*2*2*3*5
 #define OUT_WIDTH 1920
 #define OUT_HEIGHT 1080
 #define NB_SAMPLES 300 // samples per pixel for AA
 #define RECURSE_DEPTH 50
-#define TILE_WIDTH 60
-#define TILE_HEIGHT 12
-#define NB_THREADS 8
+#define TILE_WIDTH 30
+#define TILE_HEIGHT 30
+#define NB_THREADS 16
 
 vec3 color( const ray &r, hitable *world, int depth )
 {
@@ -91,8 +95,10 @@ hitable *random_scene()
             {
                 if ( choose_mat < 0.8f ) // diffuse
                 {
-                    list[i++] = new sphere( 
-                        center, 0.2f,
+                    list[i++] = new moving_sphere( 
+                        center,center + vec3(0.0f, 0.5f*RAN01(), 0.0f),
+                        0.0f, 1.0f,
+                        0.2f,
                         new lambertian( vec3(RAN01()*RAN01(),
                                              RAN01()*RAN01(),
                                              RAN01()*RAN01())));
@@ -181,7 +187,7 @@ struct compute_tile_task : public task
     
     virtual void showTask() override 
     {
-        std::unique_lock<std::mutex> g(g_console_mutex);
+        //std::unique_lock<std::mutex> g(g_console_mutex);
         //std::cout << "thread " << "( " << tile_origin_x << ", " << tile_origin_y << ")" 
         //<< " id(" << std::this_thread::get_id() << ") working...\n";
     }
@@ -214,17 +220,24 @@ int main( int argc, char **argv )
     unsigned int *image_buffer = new unsigned int[nx*ny];
     unsigned int *buffer_ptr = image_buffer;
     
-    hitable *world = random_scene();
-    
     // camera setup
-    vec3 eye = vec3( 8.0f, 1.5f, 3.0f );
+    vec3 eye = vec3( 13.0f, 2.0f, 3.0f );//vec3( 8.0f, 1.5f, 3.0f );
     vec3 lookat = vec3( 0.0f, 0.0f, 0.0f );
     vec3 up = vec3(0,1,0);
-    float dist_to_focus = (eye-lookat).length();
-    float aperture = 0.5f;//2.0f;
+    float dist_to_focus = 10;//(eye-lookat).length();
+    float aperture = 0.0f;//0.5f;//2.0f;
+    float time0 = 0.0f;
+    float time1 = 1.0f;
     camera cam(eye, lookat, up, 
-               35.0f, float(nx) / float(ny),
-               aperture, dist_to_focus);
+               20.0f, float(nx) / float(ny),
+               aperture, dist_to_focus, 
+               time0, time1);
+    
+    hitable *world = random_scene();
+    bvh_node *bvh_root = new bvh_node( 
+        ((hitable_list*)world)->list,
+        ((hitable_list*)world)->list_size, 
+        time0, time1 );
     
     // percent compute
     int nb_pixels = nx * ny;
@@ -251,24 +264,24 @@ int main( int argc, char **argv )
     thread_pool *pool = new thread_pool(NB_THREADS);
     
     auto time_start = std::chrono::high_resolution_clock::now();
-    for ( int j = ny-1; j >=0; j -= tile_height ) // top to bottom
+    for ( int j = nb_tile_y - 1; j >=0; --j ) // top to bottom
     {
-        for ( int i = 0; i < nx; i += tile_width ) // left to right
+        for ( int i = 0; i < nb_tile_x; ++i ) // left to right
         {
             compute_tile_task *task = new compute_tile_task();
-            task->tile_origin_x = i;
-            task->tile_origin_y = j - tile_height+1; // bottom left corner of a tile
+            task->tile_origin_x = i * tile_width;
+            task->tile_origin_y = j * tile_height; // bottom left corner of a tile
             task->tile_width = tile_width;
             task->tile_height = tile_height;
             task->image_width = nx;
             task->image_height = ny;
             task->samples = ns;
             task->shared_buffer = image_buffer;
-            task->world = world;
+            task->world = (hitable*)bvh_root;//world;
             task->cam = &cam;
             
             {
-                std::unique_lock<std::mutex> g(g_console_mutex);
+                //std::unique_lock<std::mutex> g(g_console_mutex);
                 //std::cout << "create task at " 
                 //<< "( " << task->tile_origin_x << ", " << task->tile_origin_y << ")" 
                 //<< "\n";

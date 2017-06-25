@@ -6,7 +6,8 @@
      // vfov in degrees, full angle from top to bottom
      camera(vec3 eye, vec3 lookat, vec3 up, 
             float vfov, float aspect,
-            float aperture, float focus_dist );
+            float aperture, float focus_dist,
+            float t0, float t1 );
      inline ray get_ray( float u, float v );
      
      // camera basis
@@ -21,18 +22,21 @@
      vec3 vertical          = vec3( 0.0f, 2.0f, 0.0f );
      
      // lens
-     float lens_radius;
+     float lens_radius = 1.0f;
+     float time0 = 0.0f, time1 = 1.0f; // shutter open/close times
  };
  
  camera::camera(vec3 eye, vec3 lookat, vec3 up, 
                 float vfov, float aspect,
-                float aperture, float focus_dist )
+                float aperture, float focus_dist,
+                float t0, float t1 ) 
+     : origin(eye), time0(t0), time1(t1)
  {
      lens_radius = aperture / 2.0f;
      float theta = vfov * PI / 180.0f; // to radians
      float half_height = tanf( theta / 2.0f );
      float half_width = aspect * half_height;
-     origin = eye;
+     
      w = unit_vector( eye - lookat );
      u = unit_vector( cross( up, w ) );
      v = cross( w, u );
@@ -52,13 +56,15 @@
      vec3 rd = lens_radius * random_in_unit_disk();
      vec3 offset = origin + rd;
      vec3 offset_origin = origin + offset;
+     // gen random time for ray (motion blur)
+     float time = time0 + RAN01() * ( time1 - time0 );
      // shoot a ray from a random point in the lens disk
      // that all focus on the (u,v) sample on the focal plane.
      return ray( offset_origin,
                 ( lower_left_corner 
                  + s * horizontal 
                  + t * vertical ) 
-                - offset_origin );
+                - offset_origin, time );
  }
  
 #endif // _RAYTRACER_CAMERA_H_

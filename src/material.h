@@ -17,7 +17,7 @@
      virtual bool scatter(const ray &r_in, const hit_record &rec, vec3 &attenuation, ray &scattered) const
      {
          vec3 target = rec.p + rec.normal + random_in_unit_sphere();
-         scattered = ray(rec.p, target-rec.p);
+         scattered = ray(rec.p, target-rec.p, r_in.time());
          attenuation = albedo;
          // NOTE(nfauvet): we could also only scatter with some probability p
          // and have attenuation be albedo/p
@@ -45,7 +45,7 @@
      {
          // pure reflection, no random
          vec3 reflected = reflect(unit_vector(r_in.direction()), rec.normal);
-         scattered = ray(rec.p, reflected + fuzz * random_in_unit_sphere());
+         scattered = ray(rec.p, reflected + fuzz * random_in_unit_sphere(), r_in.time());
          attenuation = albedo;
          
          // dont scatter at angles > 90 degrees
@@ -97,11 +97,11 @@
          // no blending yet between reflect and refract, just a proba.
          if (distribution(generator) < reflect_prob)
          {
-             scattered = ray(rec.p, reflected);
+             scattered = ray(rec.p, reflected, r_in.time());
          }
          else
          {
-             scattered = ray(rec.p, refracted);
+             scattered = ray(rec.p, refracted, r_in.time());
          }
          
          return true;
