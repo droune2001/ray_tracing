@@ -40,8 +40,8 @@ std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 // 120 = 2*2*2*3*5
 #define OUT_WIDTH 1920
 #define OUT_HEIGHT 1080
-#define NB_SAMPLES 300 // samples per pixel for AA
-#define RECURSE_DEPTH 50
+#define NB_SAMPLES 1200 // samples per pixel for AA
+#define RECURSE_DEPTH 25
 #define TILE_WIDTH 30
 #define TILE_HEIGHT 30
 #define NB_THREADS 16
@@ -221,15 +221,15 @@ int main( int argc, char **argv )
     unsigned int *buffer_ptr = image_buffer;
     
     // camera setup
-    vec3 eye = vec3( 13.0f, 2.0f, 3.0f );//vec3( 8.0f, 1.5f, 3.0f );
+    vec3 eye = vec3( 8.0f, 1.5f, 3.0f );//vec3( 13.0f, 2.0f, 3.0f );//vec3( 8.0f, 1.5f, 3.0f );
     vec3 lookat = vec3( 0.0f, 0.0f, 0.0f );
     vec3 up = vec3(0,1,0);
-    float dist_to_focus = 10;//(eye-lookat).length();
-    float aperture = 0.0f;//0.5f;//2.0f;
+    float dist_to_focus = (eye-lookat).length(); // 10
+    float aperture = 0.1f;//2.0f;0.0f
     float time0 = 0.0f;
     float time1 = 1.0f;
     camera cam(eye, lookat, up, 
-               20.0f, float(nx) / float(ny),
+               25.0f, float(nx) / float(ny),
                aperture, dist_to_focus, 
                time0, time1);
     

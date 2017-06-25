@@ -20,5 +20,3 @@
  
 #endif // _RAYTRACER_RAY_H_
  
- 
- 
