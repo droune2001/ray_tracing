@@ -40,11 +40,11 @@ std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 // 120 = 2*2*2*3*5
 #define OUT_WIDTH 1920
 #define OUT_HEIGHT 1080
-#define NB_SAMPLES 1200 // samples per pixel for AA
-#define RECURSE_DEPTH 25
+#define NB_SAMPLES 300 // samples per pixel for AA
+#define RECURSE_DEPTH 50
 #define TILE_WIDTH 30
 #define TILE_HEIGHT 30
-#define NB_THREADS 16
+#define NB_THREADS 24
 
 vec3 color( const ray &r, hitable *world, int depth )
 {
