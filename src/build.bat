@@ -16,6 +16,6 @@ echo WAITING FOR PDB > lock.tmp
 del lock.tmp
 cl %CommonCompilerFlags% ..\src\main.cpp /Fmmain.map /link %CommonLinkerFlags% 
 
-xcopy main.exe ..\bin\ /Y
+xcopy main.exe ..\bin\ /Y /R /H
 
 popd
