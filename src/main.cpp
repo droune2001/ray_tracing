@@ -32,6 +32,7 @@ std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 #include "hitable.h"
 #include "hitable_list.h"
 #include "bvh.h"
+#include "texture.h"
 #include "material.h"
 #include "sphere.h"
 #include "thread_pool.h"
@@ -88,27 +89,27 @@ struct compute_tile_task : public task
 {
     compute_tile_task() : task() {}
     
-    virtual ~compute_tile_task() override 
+    virtual ~compute_tile_task() override
     {
         std::unique_lock<std::mutex> g(g_console_mutex);
         ++g_nb_tiles_finished;
-        g_percent_complete = 100.0f * 
-            (float)g_nb_tiles_finished / 
+        g_percent_complete = 100.0f *
+            (float)g_nb_tiles_finished /
             (float)g_total_nb_tiles;
         //std::cout << "x - delete thread " << std::this_thread::get_id() << "\n";
-        std::cout << std::fixed << std::setprecision(2) 
+        std::cout << std::fixed << std::setprecision(2)
             << g_percent_complete << "%\r";
     }
     
-    virtual void run() override 
+    virtual void run() override
     {
         for( int j = tile_height-1; j >= 0; --j )
         {
             int y_in_texture_space = tile_origin_y + j;
             int y_in_buffer_space = (image_height - 1) - y_in_texture_space;
-            unsigned int *line_buffer_ptr = 
-                shared_buffer + 
-                y_in_buffer_space * image_width + 
+            unsigned int *line_buffer_ptr =
+                shared_buffer +
+                y_in_buffer_space * image_width +
                 tile_origin_x;
             
             for( int i = 0; i < tile_width; ++i )
@@ -137,10 +138,10 @@ struct compute_tile_task : public task
         }
     }
     
-    virtual void showTask() override 
+    virtual void showTask() override
     {
         //std::unique_lock<std::mutex> g(g_console_mutex);
-        //std::cout << "thread " << "( " << tile_origin_x << ", " << tile_origin_y << ")" 
+        //std::cout << "thread " << "( " << tile_origin_x << ", " << tile_origin_y << ")"
         //<< " id(" << std::this_thread::get_id() << ") working...\n";
     }
     
@@ -180,15 +181,15 @@ int main( int argc, char **argv )
     float aperture = 0.0f;//2.0f;0.0f
     float time0 = 0.0f;
     float time1 = 1.0f;
-    camera cam(eye, lookat, up, 
+    camera cam(eye, lookat, up,
                30.0f, float(nx) / float(ny),
-               aperture, dist_to_focus, 
+               aperture, dist_to_focus,
                time0, time1);
     
     hitable *world = simple_scene();
-    bvh_node *bvh_root = new bvh_node( 
+    bvh_node *bvh_root = new bvh_node(
         ((hitable_list*)world)->list,
-        ((hitable_list*)world)->list_size, 
+        ((hitable_list*)world)->list_size,
         time0, time1 );
     
     // percent compute
@@ -234,8 +235,8 @@ int main( int argc, char **argv )
             
             {
                 //std::unique_lock<std::mutex> g(g_console_mutex);
-                //std::cout << "create task at " 
-                //<< "( " << task->tile_origin_x << ", " << task->tile_origin_y << ")" 
+                //std::cout << "create task at "
+                //<< "( " << task->tile_origin_x << ", " << task->tile_origin_y << ")"
                 //<< "\n";
             }
             
@@ -251,18 +252,18 @@ int main( int argc, char **argv )
     
     auto time_end = std::chrono::high_resolution_clock::now();
     
-    std::cout 
+    std::cout
         << std::fixed << std::setprecision(2)
-        << "Time: " 
-        << std::chrono::duration<double, std::milli>(time_end-time_start).count() 
+        << "Time: "
+        << std::chrono::duration<double, std::milli>(time_end-time_start).count()
         << "ms\n";
     
     std::cout << "Writing file.\n";
     
     int res = stbi_write_png(
-        out_filename, 
-        nx, ny, 4, 
-        (void*)image_buffer, 
+        out_filename,
+        nx, ny, 4,
+        (void*)image_buffer,
         4*nx); // row stride
     
     delete []image_buffer;
@@ -274,11 +275,12 @@ int main( int argc, char **argv )
 
 hitable *mega_big_scene_end_of_book1()
 {
+    
     int n = 500;//500
     int surf_radius = ((int)sqrtf((float)n)) / 2 - 1;
     
     hitable **list = new hitable*[n+1];
-    list[0] = new sphere(vec3(0,-1000,0), 1000, new lambertian(vec3(0.5,0.5,0.5)));
+    list[0] = new sphere(vec3(0,-1000,0), 1000, new lambertian(new constant_texture(vec3(0.5,0.5,0.5))));
     int i = 1;
     for( int a = -surf_radius; a < surf_radius; ++a )
     {
@@ -291,21 +293,21 @@ hitable *mega_big_scene_end_of_book1()
             {
                 if ( choose_mat < 0.8f ) // diffuse
                 {
-                    list[i++] = new moving_sphere( 
+                    list[i++] = new moving_sphere(
                         center,center + vec3(0.0f, 0.5f*RAN01(), 0.0f),
                         0.0f, 1.0f,
                         0.2f,
-                        new lambertian( vec3(RAN01()*RAN01(),
-                                             RAN01()*RAN01(),
-                                             RAN01()*RAN01())));
+                        new lambertian( new constant_texture(vec3(RAN01()*RAN01(),
+                                                                  RAN01()*RAN01(),
+                                                                  RAN01()*RAN01()))));
                 }
                 else if ( choose_mat < 0.95 ) // metal
                 {
-                    list[i++] = new sphere( 
-                        center, 0.2f, 
-                        new metal( vec3(0.5f * ( 1.0f + RAN01()), 
-                                        0.5f * ( 1.0f + RAN01()), 
-                                        0.5f * ( 1.0f + RAN01())),
+                    list[i++] = new sphere(
+                        center, 0.2f,
+                        new metal( new constant_texture( vec3(0.5f * ( 1.0f + RAN01()),
+                                                              0.5f * ( 1.0f + RAN01()),
+                                                              0.5f * ( 1.0f + RAN01()))),
                                   0.5f * RAN01()));
                 }
                 else // glass
@@ -317,20 +319,26 @@ hitable *mega_big_scene_end_of_book1()
     }
     
     list[i++] = new sphere(vec3(0.0f,1.0f,0.0f), 1.0f, new dielectric(1.5f));
-    list[i++] = new sphere(vec3(-4.0f,1.0f,0.0f),1.0f, new lambertian(vec3(0.4f, 0.2f, 0.1f)));
-    list[i++] = new sphere(vec3(4.0f,1.0f,0.0f),1.0f, new metal(vec3(0.7f, 0.6f, 0.5f), 0.0f));
+    list[i++] = new sphere(vec3(-4.0f,1.0f,0.0f),1.0f, new lambertian(new constant_texture(vec3(0.4f, 0.2f, 0.1f))));
+    list[i++] = new sphere(vec3(4.0f,1.0f,0.0f),1.0f, new metal(new constant_texture(vec3(0.7f, 0.6f, 0.5f)), 0.0f));
     
     return new hitable_list(list, i);
+    
 }
+
 
 hitable *simple_scene()
 {
     hitable **list = new hitable*[4];
     int i = 0;
-    list[i++] = new sphere(vec3(0,-1000,0), 1000, new lambertian(vec3(0.5,0.5,0.5)));
+    list[i++] = new sphere(vec3(0,-1000,0), 1000, new lambertian(new constant_texture(vec3(0.5,0.5,0.5))));
     list[i++] = new sphere(vec3(0.0f,1.0f,0.0f), 1.0f, new dielectric(1.5f));
-    list[i++] = new sphere(vec3(-4.0f,1.0f,0.0f),1.0f, new lambertian(vec3(0.4f, 0.2f, 0.1f)));
-    list[i++] = new sphere(vec3(4.0f,1.0f,0.0f),1.0f, new metal(vec3(0.7f, 0.6f, 0.5f), 0.0f));
-     
+    list[i++] = new sphere(vec3(-4.0f,1.0f,0.0f),1.0f, 
+                           new lambertian(
+        new checker_texture(
+        new constant_texture(vec3(0.4f, 0.2f, 0.1f)),new constant_texture(vec3(0.1f, 0.4f, 0.1f)))));
+    list[i++] = new sphere(vec3(4.0f,1.0f,0.0f),1.0f, new metal(new constant_texture(vec3(0.7f, 0.6f, 0.5f)), 0.0f));
+    
     return new hitable_list(list, i);
+    
 }

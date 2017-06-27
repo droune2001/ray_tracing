@@ -13,23 +13,23 @@
  
  struct lambertian : public material
  {
-     lambertian(const vec3 &a) : albedo(a) {}
+     lambertian( texture *a) : albedo(a) {}
      virtual bool scatter(const ray &r_in, const hit_record &rec, vec3 &attenuation, ray &scattered) const
      {
          vec3 target = rec.p + rec.normal + random_in_unit_sphere();
          scattered = ray(rec.p, target-rec.p, r_in.time());
-         attenuation = albedo;
+         attenuation = albedo->value(0.0f, 0.0f, rec.p);
          // NOTE(nfauvet): we could also only scatter with some probability p
          // and have attenuation be albedo/p
          return true;
      }
      
-     vec3 albedo;
+     texture *albedo = nullptr;
  };
  
  struct metal : public material
  {
-     metal(const vec3 &a, float f) : albedo(a) 
+     metal( texture *a, float f) : albedo(a) 
      { 
          if ( f < 1.0f ) 
          {
@@ -46,13 +46,13 @@
          // pure reflection, no random
          vec3 reflected = reflect(unit_vector(r_in.direction()), rec.normal);
          scattered = ray(rec.p, reflected + fuzz * random_in_unit_sphere(), r_in.time());
-         attenuation = albedo;
+         attenuation = albedo->value(0.0f, 0.0f, rec.p);
          
          // dont scatter at angles > 90 degrees
          return (dot(scattered.direction(), rec.normal) > 0.0f);
      }
      
-     vec3 albedo = vec3(1,1,1);
+     texture *albedo = nullptr;
      float fuzz = 1.0f;
  };
  
