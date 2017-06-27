@@ -38,13 +38,16 @@ std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 
 // NOTE(nfauvet): pgcd(1920,1080) = 120
 // 120 = 2*2*2*3*5
-#define OUT_WIDTH 1920
-#define OUT_HEIGHT 1080
+#define OUT_WIDTH 192
+#define OUT_HEIGHT 108
 #define NB_SAMPLES 300 // samples per pixel for AA
 #define RECURSE_DEPTH 50
-#define TILE_WIDTH 30
-#define TILE_HEIGHT 30
-#define NB_THREADS 24
+#define TILE_WIDTH 12
+#define TILE_HEIGHT 12
+#define NB_THREADS 12
+
+hitable *mega_big_scene_end_of_book1();
+hitable *simple_scene();
 
 vec3 color( const ray &r, hitable *world, int depth )
 {
@@ -74,57 +77,6 @@ vec3 color( const ray &r, hitable *world, int depth )
         // gradient from blue to white
         return (1.0f - t) * vec3(1.0f, 1.0f, 1.0f) + t * vec3(0.5f, 0.7f, 1.0f);
     }
-}
-
-hitable *random_scene()
-{
-    int n = 500;//500
-    int surf_radius = ((int)sqrtf((float)n)) / 2 - 1;
-    
-    hitable **list = new hitable*[n+1];
-    list[0] = new sphere(vec3(0,-1000,0), 1000, new lambertian(vec3(0.5,0.5,0.5)));
-    int i = 1;
-    for( int a = -surf_radius; a < surf_radius; ++a )
-    {
-        for( int b = -surf_radius; b < surf_radius; ++b )
-        {
-            float choose_mat = RAN01();
-            vec3 center( a + 0.9f * RAN01(), 0.2f, b + 0.9f * RAN01() );
-            // keep only spheres outside the middle where we have the big ones
-            if ( (center - vec3(4.0f, 0.2f, 0.0f)).length() > 0.9f )
-            {
-                if ( choose_mat < 0.8f ) // diffuse
-                {
-                    list[i++] = new moving_sphere( 
-                        center,center + vec3(0.0f, 0.5f*RAN01(), 0.0f),
-                        0.0f, 1.0f,
-                        0.2f,
-                        new lambertian( vec3(RAN01()*RAN01(),
-                                             RAN01()*RAN01(),
-                                             RAN01()*RAN01())));
-                }
-                else if ( choose_mat < 0.95 ) // metal
-                {
-                    list[i++] = new sphere( 
-                        center, 0.2f, 
-                        new metal( vec3(0.5f * ( 1.0f + RAN01()), 
-                                        0.5f * ( 1.0f + RAN01()), 
-                                        0.5f * ( 1.0f + RAN01())),
-                                  0.5f * RAN01()));
-                }
-                else // glass
-                {
-                    list[i++] = new sphere(center, 0.2f, new dielectric(1.5f));
-                }
-            }
-        }
-    }
-    
-    list[i++] = new sphere(vec3(0.0f,1.0f,0.0f), 1.0f, new dielectric(1.5f));
-    list[i++] = new sphere(vec3(-4.0f,1.0f,0.0f),1.0f, new lambertian(vec3(0.4f, 0.2f, 0.1f)));
-    list[i++] = new sphere(vec3(4.0f,1.0f,0.0f),1.0f, new metal(vec3(0.7f, 0.6f, 0.5f), 0.0f));
-    
-    return new hitable_list(list, i);
 }
 
 static std::mutex g_console_mutex;
@@ -222,18 +174,18 @@ int main( int argc, char **argv )
     
     // camera setup
     vec3 eye = vec3( 8.0f, 1.5f, 3.0f );//vec3( 13.0f, 2.0f, 3.0f );//vec3( 8.0f, 1.5f, 3.0f );
-    vec3 lookat = vec3( 0.0f, 0.0f, 0.0f );
+    vec3 lookat = vec3( 0.0f, 1.0f, 0.0f );
     vec3 up = vec3(0,1,0);
     float dist_to_focus = (eye-lookat).length(); // 10
-    float aperture = 0.1f;//2.0f;0.0f
+    float aperture = 0.0f;//2.0f;0.0f
     float time0 = 0.0f;
     float time1 = 1.0f;
     camera cam(eye, lookat, up, 
-               25.0f, float(nx) / float(ny),
+               30.0f, float(nx) / float(ny),
                aperture, dist_to_focus, 
                time0, time1);
     
-    hitable *world = random_scene();
+    hitable *world = simple_scene();
     bvh_node *bvh_root = new bvh_node( 
         ((hitable_list*)world)->list,
         ((hitable_list*)world)->list_size, 
@@ -316,4 +268,69 @@ int main( int argc, char **argv )
     delete []image_buffer;
     
     return 0;
+}
+
+// SCENES -----------------------------------------
+
+hitable *mega_big_scene_end_of_book1()
+{
+    int n = 500;//500
+    int surf_radius = ((int)sqrtf((float)n)) / 2 - 1;
+    
+    hitable **list = new hitable*[n+1];
+    list[0] = new sphere(vec3(0,-1000,0), 1000, new lambertian(vec3(0.5,0.5,0.5)));
+    int i = 1;
+    for( int a = -surf_radius; a < surf_radius; ++a )
+    {
+        for( int b = -surf_radius; b < surf_radius; ++b )
+        {
+            float choose_mat = RAN01();
+            vec3 center( a + 0.9f * RAN01(), 0.2f, b + 0.9f * RAN01() );
+            // keep only spheres outside the middle where we have the big ones
+            if ( (center - vec3(4.0f, 0.2f, 0.0f)).length() > 0.9f )
+            {
+                if ( choose_mat < 0.8f ) // diffuse
+                {
+                    list[i++] = new moving_sphere( 
+                        center,center + vec3(0.0f, 0.5f*RAN01(), 0.0f),
+                        0.0f, 1.0f,
+                        0.2f,
+                        new lambertian( vec3(RAN01()*RAN01(),
+                                             RAN01()*RAN01(),
+                                             RAN01()*RAN01())));
+                }
+                else if ( choose_mat < 0.95 ) // metal
+                {
+                    list[i++] = new sphere( 
+                        center, 0.2f, 
+                        new metal( vec3(0.5f * ( 1.0f + RAN01()), 
+                                        0.5f * ( 1.0f + RAN01()), 
+                                        0.5f * ( 1.0f + RAN01())),
+                                  0.5f * RAN01()));
+                }
+                else // glass
+                {
+                    list[i++] = new sphere(center, 0.2f, new dielectric(1.5f));
+                }
+            }
+        }
+    }
+    
+    list[i++] = new sphere(vec3(0.0f,1.0f,0.0f), 1.0f, new dielectric(1.5f));
+    list[i++] = new sphere(vec3(-4.0f,1.0f,0.0f),1.0f, new lambertian(vec3(0.4f, 0.2f, 0.1f)));
+    list[i++] = new sphere(vec3(4.0f,1.0f,0.0f),1.0f, new metal(vec3(0.7f, 0.6f, 0.5f), 0.0f));
+    
+    return new hitable_list(list, i);
+}
+
+hitable *simple_scene()
+{
+    hitable **list = new hitable*[4];
+    int i = 0;
+    list[i++] = new sphere(vec3(0,-1000,0), 1000, new lambertian(vec3(0.5,0.5,0.5)));
+    list[i++] = new sphere(vec3(0.0f,1.0f,0.0f), 1.0f, new dielectric(1.5f));
+    list[i++] = new sphere(vec3(-4.0f,1.0f,0.0f),1.0f, new lambertian(vec3(0.4f, 0.2f, 0.1f)));
+    list[i++] = new sphere(vec3(4.0f,1.0f,0.0f),1.0f, new metal(vec3(0.7f, 0.6f, 0.5f), 0.0f));
+     
+    return new hitable_list(list, i);
 }
