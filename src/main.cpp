@@ -24,7 +24,12 @@ std::default_random_engine generator;
 std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 #define RAN01() distribution(generator)
 
+#define internal static
+#define global static
+#define local_persist static
+
 #include "vec3.h"
+#include "perlin.h"
 #include "ray.h"
 #include "aabb.h"
 #include "utils.h"
@@ -39,8 +44,8 @@ std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 
 // NOTE(nfauvet): pgcd(1920,1080) = 120
 // 120 = 2*2*2*3*5
-#define OUT_WIDTH 192
-#define OUT_HEIGHT 108
+#define OUT_WIDTH 1920
+#define OUT_HEIGHT 1080
 #define NB_SAMPLES 300 // samples per pixel for AA
 #define RECURSE_DEPTH 50
 #define TILE_WIDTH 12
@@ -49,6 +54,7 @@ std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 
 hitable *mega_big_scene_end_of_book1();
 hitable *simple_scene();
+hitable *two_perlin_spheres();
 
 vec3 color( const ray &r, hitable *world, int depth )
 {
@@ -80,10 +86,10 @@ vec3 color( const ray &r, hitable *world, int depth )
     }
 }
 
-static std::mutex g_console_mutex;
-static int g_total_nb_tiles = 0;
-static int g_nb_tiles_finished = 0;
-static float g_percent_complete = 0.0f;
+global std::mutex g_console_mutex;
+global int g_total_nb_tiles = 0;
+global int g_nb_tiles_finished = 0;
+global float g_percent_complete = 0.0f;
 
 struct compute_tile_task : public task
 {
@@ -177,7 +183,7 @@ int main( int argc, char **argv )
     vec3 eye = vec3( 8.0f, 1.5f, 3.0f );//vec3( 13.0f, 2.0f, 3.0f );//vec3( 8.0f, 1.5f, 3.0f );
     vec3 lookat = vec3( 0.0f, 1.0f, 0.0f );
     vec3 up = vec3(0,1,0);
-    float dist_to_focus = (eye-lookat).length(); // 10
+    float dist_to_focus = 10; //(eye-lookat).length(); // 10
     float aperture = 0.0f;//2.0f;0.0f
     float time0 = 0.0f;
     float time1 = 1.0f;
@@ -186,7 +192,7 @@ int main( int argc, char **argv )
                aperture, dist_to_focus,
                time0, time1);
     
-    hitable *world = simple_scene();
+    hitable *world = two_perlin_spheres();
     bvh_node *bvh_root = new bvh_node(
         ((hitable_list*)world)->list,
         ((hitable_list*)world)->list_size,
@@ -340,5 +346,16 @@ hitable *simple_scene()
     list[i++] = new sphere(vec3(4.0f,1.0f,0.0f),1.0f, new metal(new constant_texture(vec3(0.7f, 0.6f, 0.5f)), 0.0f));
     
     return new hitable_list(list, i);
-    
 }
+
+hitable *two_perlin_spheres()
+{
+    texture *pertex = new noise_texture(2.0f);
+    hitable **list = new hitable*[2];
+    list[0] = new sphere(vec3(0,-1000,0), 1000, new lambertian( pertex ) );
+    list[1] = new sphere(vec3(0.0f,2.0f,0.0f), 2.0f, new lambertian( pertex ) );
+    
+    return new hitable_list(list, 2);
+}
+
+// eof

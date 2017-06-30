@@ -40,4 +40,21 @@ struct checker_texture : public texture
     texture *even;
 };
 
+struct noise_texture : public texture
+{
+    noise_texture() {}
+    noise_texture( float sc ) : scale( sc ) {}
+    virtual vec3 value( float u, float v, const vec3 &p ) override
+    {
+        //return vec3( 1.0f, 1.0f, 1.0f ) * noise.noise( scale * p );
+        //return vec3( 1.0f, 1.0f, 1.0f ) * noise.turb( scale * p, 7 );
+        return vec3( 1.0f, 1.0f, 1.0f ) * 0.5f * 
+            (1.0f + sinf(scale * p.z() + 10.0f * noise.turb( scale * p, 7 )));
+    }
+    
+    perlin noise;
+    float scale;
+};
+
+
 #endif // _RAYTRACER_TEXTURE_H_
