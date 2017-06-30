@@ -1,3 +1,20 @@
 - command line params
 - window
 - ROI
+- separate passes (normals, depth, AO)
+
+
+
+
+
+
+
+
+REF:
+
+Robust BVH Ray Traversal................http://jcgt.org/published/0002/02/02/
+Watertight Ray/Triangle Intesection.....http://jcgt.org/published/0002/01/05/
+SSE RayBox Intersection Test............http://www.flipcode.com/archives/SSE_RayBox_Intersection_Test.shtml
+nanort..................................https://github.com/lighttransport/nanort
+Embree..................................https://embree.github.io/
+FastNoise-SIMD..........................https://github.com/Auburns/FastNoiseSIMD
