@@ -54,5 +54,18 @@
      return p;
  }
  
+ void get_sphere_uv( const vec3 &p, float &u, float &v )
+ {
+     float phi = atan2( p.z(), p.x() );   // [-PI..PI]
+     float theta = asin( p.y() );         // [-PI/2..PI/2]
+     float two_pi = (2.0f * (float)M_PI);
+     float pi_over_two = ((float)M_PI / 2.0f);
+     float phi_minus_pi = (phi + (float)M_PI); // [-2PI..0]
+     float phi_minus_pi_over_two_pi = ( phi_minus_pi / two_pi ); // [-1..0]
+     u = 1.0f - phi_minus_pi_over_two_pi; // [-PI..PI] -> [0..1]
+     v = (theta + pi_over_two) / (float)M_PI;        // [-PI/2..PI/2] -> [0..1]
+     //std::cout << "u:"<< u << " v:" << v << "\n";
+ }
+ 
 #endif // _RAYTRACER_UTILS_H_
  

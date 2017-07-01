@@ -18,7 +18,19 @@
      {
          vec3 target = rec.p + rec.normal + random_in_unit_sphere();
          scattered = ray(rec.p, target-rec.p, r_in.time());
-         attenuation = albedo->value(0.0f, 0.0f, rec.p);
+         
+         // texture
+         attenuation = albedo->value( rec.u, rec.v, rec.p );
+         
+         // (u,v) pass
+         //attenuation = vec3( rec.u, rec.v, 0.0f );
+         
+         // normal pass
+         //attenuation = vec3( 
+         //0.5f * ( 1.0f + rec.normal.x() ), 
+         //0.5f * ( 1.0f + rec.normal.y() ),
+         //0.5f * ( 1.0f + rec.normal.z() ) );
+         
          // NOTE(nfauvet): we could also only scatter with some probability p
          // and have attenuation be albedo/p
          return true;
@@ -46,7 +58,7 @@
          // pure reflection, no random
          vec3 reflected = reflect(unit_vector(r_in.direction()), rec.normal);
          scattered = ray(rec.p, reflected + fuzz * random_in_unit_sphere(), r_in.time());
-         attenuation = albedo->value(0.0f, 0.0f, rec.p);
+         attenuation = albedo->value( rec.u, rec.v, rec.p );
          
          // dont scatter at angles > 90 degrees
          return (dot(scattered.direction(), rec.normal) > 0.0f);

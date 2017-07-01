@@ -1,5 +1,6 @@
 #include <iostream>
 #include <fstream>
+#define _USE_MATH_DEFINES
 #include <cmath>
 #include <cstdlib>
 #include <float.h>
@@ -13,6 +14,9 @@
 #include <assert.h>
 #include <utility> // std::swap in c++11
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define _CRT_SECURE_NO_WARNINGS
 #include "stb_image_write.h"
@@ -20,6 +24,7 @@
 #ifndef PI
 #    define PI 3.14159f
 #endif
+
 std::default_random_engine generator;
 std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 #define RAN01() distribution(generator)
@@ -46,11 +51,11 @@ std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 // 120 = 2*2*2*3*5
 #define OUT_WIDTH 1920
 #define OUT_HEIGHT 1080
-#define NB_SAMPLES 300 // samples per pixel for AA
+#define NB_SAMPLES 1200 // samples per pixel for AA
 #define RECURSE_DEPTH 50
 #define TILE_WIDTH 12
 #define TILE_HEIGHT 12
-#define NB_THREADS 12
+#define NB_THREADS 4
 
 hitable *mega_big_scene_end_of_book1();
 hitable *simple_scene();
@@ -58,7 +63,7 @@ hitable *two_perlin_spheres();
 
 vec3 color( const ray &r, hitable *world, int depth )
 {
-    hit_record rec;
+    hit_record rec = {};
     if (world->hit(r, 0.001f, FLT_MAX, rec))
     {
         ray scattered;
@@ -102,9 +107,8 @@ struct compute_tile_task : public task
         g_percent_complete = 100.0f *
             (float)g_nb_tiles_finished /
             (float)g_total_nb_tiles;
-        //std::cout << "x - delete thread " << std::this_thread::get_id() << "\n";
-        std::cout << std::fixed << std::setprecision(2)
-            << g_percent_complete << "%\r";
+        
+        std::cout << std::fixed << std::setprecision(2) << g_percent_complete << "%\r";
     }
     
     virtual void run() override
@@ -188,11 +192,11 @@ int main( int argc, char **argv )
     float time0 = 0.0f;
     float time1 = 1.0f;
     camera cam(eye, lookat, up,
-               30.0f, float(nx) / float(ny),
+               25.0f, float(nx) / float(ny),
                aperture, dist_to_focus,
                time0, time1);
     
-    hitable *world = two_perlin_spheres();
+    hitable *world = simple_scene();
     bvh_node *bvh_root = new bvh_node(
         ((hitable_list*)world)->list,
         ((hitable_list*)world)->list_size,
@@ -335,15 +339,29 @@ hitable *mega_big_scene_end_of_book1()
 
 hitable *simple_scene()
 {
+    int nx, ny, nn;
+    unsigned char *tex_data = stbi_load("../data/earth.jpg", &nx, &ny, &nn, 0);
+    material *textured_lambert_mat = new lambertian( new image_texture(tex_data, nx, ny));
+    
+    std::cout << "loading texture: nx = " << nx << " ny = " << ny << "\n";
+    
     hitable **list = new hitable*[4];
     int i = 0;
     list[i++] = new sphere(vec3(0,-1000,0), 1000, new lambertian(new constant_texture(vec3(0.5,0.5,0.5))));
-    list[i++] = new sphere(vec3(0.0f,1.0f,0.0f), 1.0f, new dielectric(1.5f));
-    list[i++] = new sphere(vec3(-4.0f,1.0f,0.0f),1.0f, 
-                           new lambertian(
+    list[i++] = new sphere(vec3(4.0f,1.0f,0.0f), 1.0f, new dielectric(1.5f));
+    list[i++] = new sphere(vec3(0.0f,1.0f,0.0f), 1.0f, textured_lambert_mat );
+    /*list[i++] = new sphere(vec3(-4.0f,1.0f,0.0f),1.0f, 
+                           new lambertian( 
         new checker_texture(
-        new constant_texture(vec3(0.4f, 0.2f, 0.1f)),new constant_texture(vec3(0.1f, 0.4f, 0.1f)))));
-    list[i++] = new sphere(vec3(4.0f,1.0f,0.0f),1.0f, new metal(new constant_texture(vec3(0.7f, 0.6f, 0.5f)), 0.0f));
+        new constant_texture( 
+        vec3(0.4f, 0.2f, 0.1f)), 
+        new constant_texture( 
+        vec3(0.1f, 0.4f, 0.1f))
+        )
+        )
+                           );
+                           */
+    list[i++] = new sphere(vec3(-4.0f,1.0f,0.0f),1.0f, new metal(new constant_texture(vec3(0.7f, 0.6f, 0.5f)), 0.0f));
     
     return new hitable_list(list, i);
 }

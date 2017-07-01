@@ -2,9 +2,9 @@
 
 set DebugCompilerFlags=/MTd /Od
 set ReleaseCompilerFlags=/MT /O2 /Oi /fp:fast
-set CompilerConfigFlags=%ReleaseCompilerFlags%
-
-set CommonCompilerFlags=%CompilerConfigFlags% /nologo /Gm- /GR- /EHa- /EHsc- /WX /W4 /wd4201 /wd4100 /wd4189 /wd4505 /wd4996 /Zi /FC
+set CompilerConfigFlags=%DebugCompilerFlags%
+REM /WX
+set CommonCompilerFlags=%CompilerConfigFlags% /nologo /Gm- /GR- /EHa- /EHsc- /W4 /wd4201 /wd4100 /wd4189 /wd4505 /wd4996 /Zi /FC
 
 set CommonLinkerFlags=/incremental:no /opt:ref user32.lib gdi32.lib winmm.lib
 

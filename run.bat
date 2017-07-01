@@ -1,6 +1,8 @@
-pushd bin
+@echo off
 
-main.exe
+pushd data
+
+..\bin\main.exe
 openseeit.exe out.png
 
 popd
