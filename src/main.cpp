@@ -45,13 +45,14 @@ std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 #include "texture.h"
 #include "material.h"
 #include "sphere.h"
+#include "plane.h"
 #include "thread_pool.h"
 
 // NOTE(nfauvet): pgcd(1920,1080) = 120
 // 120 = 2*2*2*3*5
 #define OUT_WIDTH 1920
 #define OUT_HEIGHT 1080
-#define NB_SAMPLES 1200 // samples per pixel for AA
+#define NB_SAMPLES 300 // samples per pixel for AA
 #define RECURSE_DEPTH 50
 #define TILE_WIDTH 12
 #define TILE_HEIGHT 12
@@ -60,6 +61,7 @@ std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 hitable *mega_big_scene_end_of_book1();
 hitable *simple_scene();
 hitable *two_perlin_spheres();
+hitable* cornell_box();
 
 vec3 color( const ray &r, hitable *world, int depth )
 {
@@ -68,26 +70,28 @@ vec3 color( const ray &r, hitable *world, int depth )
     {
         ray scattered;
         vec3 attenuation;
+        vec3 emitted = rec.mat_ptr->emitted( rec.u, rec.v, rec.p );
         if ((depth < RECURSE_DEPTH) && rec.mat_ptr->scatter(r, rec, attenuation, scattered))
         {
             // recursive
-            return attenuation * color(scattered, world, depth+1);
+            return emitted + attenuation * color(scattered, world, depth+1);
         }
         else
         {
-            // why 0?? it will render all black when we unroll
-            // the recursive calls.
-            return vec3(0,0,0);
+            return emitted;
         }
     }
     else
     {
+        /*
         // BACKGROUND COLOR
         vec3 unit_direction = unit_vector(r.direction());
         // Y from [-1;1] to [0;1]
         float t = 0.5f * (unit_direction.y() + 1.0f);
         // gradient from blue to white
         return (1.0f - t) * vec3(1.0f, 1.0f, 1.0f) + t * vec3(0.5f, 0.7f, 1.0f);
+        */
+        return vec3(0,0,0);
     }
 }
 
@@ -183,20 +187,33 @@ int main( int argc, char **argv )
     unsigned int *image_buffer = new unsigned int[nx*ny];
     unsigned int *buffer_ptr = image_buffer;
     
+    float time0 = 0.0f;
+    float time1 = 1.0f;
+    
     // camera setup
+    /*
     vec3 eye = vec3( 8.0f, 1.5f, 3.0f );//vec3( 13.0f, 2.0f, 3.0f );//vec3( 8.0f, 1.5f, 3.0f );
     vec3 lookat = vec3( 0.0f, 1.0f, 0.0f );
     vec3 up = vec3(0,1,0);
     float dist_to_focus = 10; //(eye-lookat).length(); // 10
     float aperture = 0.0f;//2.0f;0.0f
-    float time0 = 0.0f;
-    float time1 = 1.0f;
-    camera cam(eye, lookat, up,
-               25.0f, float(nx) / float(ny),
-               aperture, dist_to_focus,
-               time0, time1);
+    float vfov = 35.0f;
+    camera cam(eye, lookat, up, vfov, float(nx) / float(ny), aperture, dist_to_focus, time0, time1);
+    */
     
-    hitable *world = simple_scene();
+    // cornell camera
+    camera cam(
+        vec3( 278.0f, 278.0f, -800.0f ), 
+        vec3( 278.0f, 278.0f,  278.0f ), 
+        vec3( 0.0f, 1.0f, 0.0f ), 
+        40.0f, 
+        float(nx)/float(ny), 
+        0.0f, 
+        800.0f,
+        time0, 
+        time1 );
+    
+    hitable *world = cornell_box();
     bvh_node *bvh_root = new bvh_node(
         ((hitable_list*)world)->list,
         ((hitable_list*)world)->list_size,
@@ -343,26 +360,15 @@ hitable *simple_scene()
     unsigned char *tex_data = stbi_load("../data/earth.jpg", &nx, &ny, &nn, 0);
     material *textured_lambert_mat = new lambertian( new image_texture(tex_data, nx, ny));
     
-    std::cout << "loading texture: nx = " << nx << " ny = " << ny << "\n";
-    
-    hitable **list = new hitable*[4];
+    hitable **list = new hitable*[10];
     int i = 0;
     list[i++] = new sphere(vec3(0,-1000,0), 1000, new lambertian(new constant_texture(vec3(0.5,0.5,0.5))));
     list[i++] = new sphere(vec3(4.0f,1.0f,0.0f), 1.0f, new dielectric(1.5f));
     list[i++] = new sphere(vec3(0.0f,1.0f,0.0f), 1.0f, textured_lambert_mat );
-    /*list[i++] = new sphere(vec3(-4.0f,1.0f,0.0f),1.0f, 
-                           new lambertian( 
-        new checker_texture(
-        new constant_texture( 
-        vec3(0.4f, 0.2f, 0.1f)), 
-        new constant_texture( 
-        vec3(0.1f, 0.4f, 0.1f))
-        )
-        )
-                           );
-                           */
+    //list[i++] = new sphere(vec3(-4.0f,1.0f,0.0f),1.0f, new lambertian( new checker_texture(new constant_texture( vec3(0.4f, 0.2f, 0.1f)), new constant_texture( vec3(0.1f, 0.4f, 0.1f)))));
     list[i++] = new sphere(vec3(-4.0f,1.0f,0.0f),1.0f, new metal(new constant_texture(vec3(0.7f, 0.6f, 0.5f)), 0.0f));
-    
+    list[i++] = new sphere(vec3(0, 6, 0), 3, new diffuse_light(new constant_texture(vec3(4,4,3))));
+    list[i++] = new xy_rect(3, 5, 1, 3, -2, new diffuse_light(new constant_texture(vec3(4,4,4))));
     return new hitable_list(list, i);
 }
 
@@ -374,6 +380,27 @@ hitable *two_perlin_spheres()
     list[1] = new sphere(vec3(0.0f,2.0f,0.0f), 2.0f, new lambertian( pertex ) );
     
     return new hitable_list(list, 2);
+}
+
+hitable *cornell_box()
+{
+    hitable **list = new hitable*[8];
+    int i = 0;
+    material *red   = new lambertian( new constant_texture(vec3(0.65f,0.05f,0.05f)));
+    material *white = new lambertian( new constant_texture(vec3(0.73f,0.73f,0.73f)));
+    material *green = new lambertian( new constant_texture(vec3(0.12f,0.45f,0.15f)));
+    material *light = new diffuse_light( new constant_texture(vec3(15,15,15)));
+    
+    //list[i++] = new sphere(vec3(0,-10000,0), 10000, new lambertian(new constant_texture(vec3(0.5,0.5,0.5))));
+    //list[i++] = new sphere(vec3(278, 278, 278), 50, new diffuse_light(new constant_texture(vec3(15,15,15))));
+    
+    list[i++] = new flip_normals(new yz_rect(0,555,0,555,555, green)); // left - flip
+    list[i++] = new yz_rect(0,555,0,555,  0, red);   // right
+    list[i++] = new flip_normals(new xz_rect(0,555,0,555,555, white)); // top - flip
+    list[i++] = new xz_rect(213,343,227,332,554, light); // light
+    list[i++] = new xz_rect(0,555,0,555,0, white); // bottom
+    list[i++] = new flip_normals(new xy_rect(0,555,0,555,555, white)); // back - flip
+    return new hitable_list(list, i);
 }
 
 // eof

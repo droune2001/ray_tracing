@@ -34,7 +34,7 @@
  {
      lens_radius = aperture / 2.0f;
      float theta = vfov * PI / 180.0f; // to radians
-     float half_height = tanf( theta / 2.0f );
+     float half_height = 1.0f * tanf( theta / 2.0f );
      float half_width = aspect * half_height;
      
      w = unit_vector( eye - lookat );
@@ -43,8 +43,8 @@
      // z = focus_dist plane in camera space
      lower_left_corner = 
          origin 
-         - half_width * focus_dist * u 
-         - half_height * focus_dist * v
+         - u * half_width * focus_dist
+         - v * half_height * focus_dist
          - w * focus_dist;
      // size of the proj plane is scaled by focus dist
      horizontal = 2.0f * half_width * focus_dist * u; // cam X
@@ -54,7 +54,7 @@
  inline ray camera::get_ray(float s, float t)
  {
      vec3 rd = lens_radius * random_in_unit_disk();
-     vec3 offset = origin + rd;
+     vec3 offset = u * rd.x() + v * rd.y();
      vec3 offset_origin = origin + offset;
      // gen random time for ray (motion blur)
      float time = time0 + RAN01() * ( time1 - time0 );
