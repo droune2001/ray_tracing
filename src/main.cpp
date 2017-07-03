@@ -46,13 +46,14 @@ std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 #include "material.h"
 #include "sphere.h"
 #include "plane.h"
+#include "box.h"
 #include "thread_pool.h"
 
 // NOTE(nfauvet): pgcd(1920,1080) = 120
 // 120 = 2*2*2*3*5
 #define OUT_WIDTH 1920
 #define OUT_HEIGHT 1080
-#define NB_SAMPLES 300 // samples per pixel for AA
+#define NB_SAMPLES 3000 // samples per pixel for AA
 #define RECURSE_DEPTH 50
 #define TILE_WIDTH 12
 #define TILE_HEIGHT 12
@@ -391,15 +392,15 @@ hitable *cornell_box()
     material *green = new lambertian( new constant_texture(vec3(0.12f,0.45f,0.15f)));
     material *light = new diffuse_light( new constant_texture(vec3(15,15,15)));
     
-    //list[i++] = new sphere(vec3(0,-10000,0), 10000, new lambertian(new constant_texture(vec3(0.5,0.5,0.5))));
-    //list[i++] = new sphere(vec3(278, 278, 278), 50, new diffuse_light(new constant_texture(vec3(15,15,15))));
+    list[i++] = new flip_normals(new yz_rect(0,555,0,555,555, green)); // left
+    list[i++] = new yz_rect(0,555,0,555,  0, red);                     // right
+    list[i++] = new flip_normals(new xz_rect(0,555,0,555,555, white)); // top
+    list[i++] = new xz_rect(213,343,227,332,554, light);               // light
+    list[i++] = new xz_rect(0,555,0,555,0, white);                     // bottom
+    list[i++] = new flip_normals(new xy_rect(0,555,0,555,555, white)); // back
+    list[i++] = new box(vec3(130.0f, 0.0f, 65.0f), vec3(295.0f, 165.0f, 230.0f), white);
+    list[i++] = new box(vec3(265.0f, 0.0f, 295.0f), vec3(430.0f, 330.0f, 460.0f), white);
     
-    list[i++] = new flip_normals(new yz_rect(0,555,0,555,555, green)); // left - flip
-    list[i++] = new yz_rect(0,555,0,555,  0, red);   // right
-    list[i++] = new flip_normals(new xz_rect(0,555,0,555,555, white)); // top - flip
-    list[i++] = new xz_rect(213,343,227,332,554, light); // light
-    list[i++] = new xz_rect(0,555,0,555,0, white); // bottom
-    list[i++] = new flip_normals(new xy_rect(0,555,0,555,555, white)); // back - flip
     return new hitable_list(list, i);
 }
 
