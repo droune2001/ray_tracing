@@ -41,6 +41,7 @@ std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 #include "camera.h"
 #include "hitable.h"
 #include "hitable_list.h"
+#include "transforms.h"
 #include "bvh.h"
 #include "texture.h"
 #include "material.h"
@@ -53,11 +54,11 @@ std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 // 120 = 2*2*2*3*5
 #define OUT_WIDTH 1920
 #define OUT_HEIGHT 1080
-#define NB_SAMPLES 3000 // samples per pixel for AA
-#define RECURSE_DEPTH 50
-#define TILE_WIDTH 12
-#define TILE_HEIGHT 12
-#define NB_THREADS 4
+#define NB_SAMPLES 300 // samples per pixel for AA
+#define RECURSE_DEPTH 5
+#define TILE_WIDTH 120
+#define TILE_HEIGHT 1
+#define NB_THREADS 12
 
 hitable *mega_big_scene_end_of_book1();
 hitable *simple_scene();
