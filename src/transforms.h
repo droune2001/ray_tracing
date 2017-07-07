@@ -96,17 +96,43 @@ rotate_y::rotate_y( hitable *p, float angle ) : ptr( p )
         }
     }
     
-    boox = aabb( min, max );
+    bbox = aabb( min, max );
 }
 
 bool rotate_y::hit( const ray &r, float t_min, float t_max, hit_record &rec ) const
 {
-    return true;
+    vec3 origin = r.origin();
+    vec3 direction = r.direction();
+    // rotate ray
+    origin[0] = cos_theta * r.origin()[0] - sin_theta * r.origin()[2];
+    origin[2] = sin_theta * r.origin()[0] + cos_theta * r.origin()[2];
+    direction[0] = cos_theta * r.direction()[0] - sin_theta * r.direction()[2];
+    direction[2] = sin_theta * r.direction()[0] + cos_theta * r.direction()[2];
+    ray rotated_r( origin, direction, r.time() );
+    if ( ptr->hit( rotated_r, t_min, t_max, rec ) )
+    {
+        // un-rotate result hitpoint.
+        vec3 p = rec.p;
+        vec3 normal = rec.normal;
+        p[0] =  cos_theta * rec.p[0] + sin_theta * rec.p[2];
+        p[2] = -sin_theta * rec.p[0] + cos_theta * rec.p[2];
+        normal[0] =  cos_theta * rec.normal[0] + sin_theta * rec.normal[2];
+        normal[2] = -sin_theta * rec.normal[0] + cos_theta * rec.normal[2];
+        rec.p = p;
+        rec.normal = normal;
+        
+        return true;
+    }
+    else
+    {
+        return false;
+    }
 }
 
 bool rotate_y::bounding_box( float t0, float t1, aabb &box ) const
 {
-    return true;
+    box = bbox;
+    return hasbox;
 }
 
 

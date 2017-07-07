@@ -57,8 +57,8 @@ std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 #define NB_SAMPLES 300 // samples per pixel for AA
 #define RECURSE_DEPTH 5
 #define TILE_WIDTH 120
-#define TILE_HEIGHT 1
-#define NB_THREADS 12
+#define TILE_HEIGHT 120
+#define NB_THREADS 4
 
 hitable *mega_big_scene_end_of_book1();
 hitable *simple_scene();
@@ -399,8 +399,9 @@ hitable *cornell_box()
     list[i++] = new xz_rect(213,343,227,332,554, light);               // light
     list[i++] = new xz_rect(0,555,0,555,0, white);                     // bottom
     list[i++] = new flip_normals(new xy_rect(0,555,0,555,555, white)); // back
-    list[i++] = new box(vec3(130.0f, 0.0f, 65.0f), vec3(295.0f, 165.0f, 230.0f), white);
-    list[i++] = new box(vec3(265.0f, 0.0f, 295.0f), vec3(430.0f, 330.0f, 460.0f), white);
+    
+    list[i++] = new translate( new rotate_y ( new box(vec3(0,0,0), vec3(165, 165, 165), white), -18 ), vec3( 130, 0,  65 ));  // small box
+    list[i++] = new translate( new rotate_y ( new box(vec3(0,0,0), vec3(165, 330, 165), white),  15 ), vec3( 265, 0, 295 )); // big box
     
     return new hitable_list(list, i);
 }
