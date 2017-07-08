@@ -53,19 +53,20 @@ std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 
 // NOTE(nfauvet): pgcd(1920,1080) = 120
 // 120 = 2*2*2*3*5
-#define OUT_WIDTH 192
-#define OUT_HEIGHT 108
+#define OUT_WIDTH 1920
+#define OUT_HEIGHT 1080
 #define NB_SAMPLES 300 // samples per pixel for AA
-#define RECURSE_DEPTH 5
+#define RECURSE_DEPTH 50
 #define TILE_WIDTH 12
 #define TILE_HEIGHT 12
 #define NB_THREADS 4
 
 hitable *mega_big_scene_end_of_book1();
+hitable *mega_big_scene_end_of_book2();
 hitable *simple_scene();
 hitable *two_perlin_spheres();
-hitable* cornell_box();
-hitable* cornell_box_volumes();
+hitable *cornell_box();
+hitable *cornell_box_volumes();
 
 vec3 color( const ray &r, hitable *world, int depth )
 {
@@ -146,6 +147,7 @@ struct compute_tile_task : public task
                 
                 // gamma correction
                 col = vec3(sqrtf(col[0]), sqrtf(col[1]), sqrtf(col[2]) );
+                col.clamp01();
                 unsigned int ir = unsigned int(255.99f*col.r());
                 unsigned int ig = unsigned int(255.99f*col.g());
                 unsigned int ib = unsigned int(255.99f*col.b());
@@ -206,7 +208,7 @@ int main( int argc, char **argv )
     */
     
     // cornell camera
-    camera cam(
+    /*camera cam(
         vec3( 278.0f, 278.0f, -800.0f ), 
         vec3( 278.0f, 278.0f,  278.0f ), 
         vec3( 0.0f, 1.0f, 0.0f ), 
@@ -216,8 +218,20 @@ int main( int argc, char **argv )
         800.0f,
         time0, 
         time1 );
+    */
     
-    hitable *world = cornell_box_volumes();
+    camera cam(
+        vec3( 350.0f, 278.0f, -450.0f ), 
+        vec3( 180.0f, 278.0f,  278.0f ), 
+        vec3( 0.0f, 1.0f, 0.0f ), 
+        45.0f, 
+        float(nx)/float(ny), 
+        0.0f, 
+        800.0f,
+        time0, 
+        time1 );
+    
+    hitable *world = mega_big_scene_end_of_book2();
     bvh_node *bvh_root = new bvh_node(
         ((hitable_list*)world)->list,
         ((hitable_list*)world)->list_size,
@@ -433,6 +447,88 @@ hitable *cornell_box_volumes()
     list[i++] = new constant_medium( b2, 0.01f, volume_dark );
     
     return new hitable_list(list, i);
+}
+
+hitable *mega_big_scene_end_of_book2()
+{
+    hitable **list = new hitable*[30];
+    hitable **boxlist = new hitable*[400];
+    hitable **boxlist2 = new hitable*[1000];
+    
+    material *white  = new lambertian( new constant_texture(vec3(0.73f,0.73f,0.73f)));
+    material *ground = new lambertian( new constant_texture(vec3(0.48f,0.83f,0.53f)));
+    
+    // 20x20 floor of boxes of 100x100xrandom_height
+    int nb = 20;
+    int b = 0; // total_nb_boxes
+    for ( int i = 0; i < nb; ++i )
+    {
+        for ( int j = 0; j < nb; ++j )
+        {
+            float w = 100.0f;
+            float x0 = -1000.0f + i * w;
+            float z0 = -1000.0f + j * w;
+            float y0 = 0.0f;
+            float x1 = x0 + w;
+            float y1 = 100.0f * ( RAN01() + 0.01f );
+            float z1 = z0 + w;
+            boxlist[b++] = new box( vec3(x0, y0, z0), vec3(x1, y1, z1), ground );
+        }
+    }
+    
+    int l = 0;
+    list[l++] = new bvh_node( boxlist, b, 0.0f, 1.0f );
+    
+    // cornell light
+    material *light = new diffuse_light( new constant_texture(vec3(7,7,7)));
+    list[l++] = new xz_rect(123, 423, 147, 412, 554, light);
+    
+    // motion blurred sphere
+    vec3 center(400,400,200);
+    list[l++] = new moving_sphere( 
+        center, center + vec3(30,0,0), 0, 1, 50, 
+        new lambertian(
+        new constant_texture(
+        vec3(0.7f, 0.3f, 0.1f)
+        )
+        )
+        );
+    
+    // glass sphere
+    list[l++] = new sphere(vec3(260, 150, 45), 50, new dielectric(1.5f));
+    
+    // metal sphere
+    list[l++] = new sphere(vec3(0, 150, 145), 50, new metal(new constant_texture(vec3(0.8f, 0.8f, 0.9f)), 10.0f));
+    
+    // subsurface sphere 1
+    hitable *boundary = new sphere(vec3(360, 150, 145), 70, new dielectric(1.5f));
+    list[l++] = boundary;
+    list[l++] = new constant_medium(boundary, 0.2f, new constant_texture(vec3(0.2f, 0.4f, 0.9f)));
+    
+    // fog over all scene
+    boundary = new sphere(vec3(0,0,0),5000, new dielectric(1.5f));
+    list[l++] = new constant_medium(boundary, 0.0001f, new constant_texture(vec3(1.0f, 1.0f, 1.0f)));
+    
+    // textured sphere
+    int nx, ny, nn;
+    unsigned char *tex_data = stbi_load("../data/earth.jpg", &nx, &ny, &nn, 0);
+    material *emat = new lambertian(new image_texture(tex_data, nx, ny));
+    list[l++] = new sphere(vec3(400,200,400), 100, emat);
+    
+    // noise sphere
+    texture *perlin_tex = new noise_texture(0.1f);
+    list[l++] = new sphere(vec3(220, 280, 300), 80, new lambertian(perlin_tex));
+    
+    // cube of many spheres
+    int ns = 1000;
+    for ( int j = 0; j < ns; ++j )
+    {
+        boxlist2[j] = new sphere(vec3(165.0f*RAN01(),165.0f*RAN01(),165.0f*RAN01()), 10, white );
+    }
+    list[l++] = new translate( new rotate_y( new bvh_node(boxlist2, ns, 0.0f, 1.0f), 15.0f), vec3(-100.0f,270.0f,395.0f));
+    
+    
+    return new hitable_list(list, l);
 }
 
 // eof
