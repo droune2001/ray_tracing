@@ -129,14 +129,28 @@
      virtual bool scatter(const ray &r_in, const hit_record &rec, vec3 &attenuation, ray &scattered) const 
      { 
          return false; 
-     };
+     }
      
      virtual vec3 emitted(float u, float v, const vec3 &p) const 
      { 
          return emit->value(u,v,p); 
-     };
+     }
      
      texture *emit;
+ };
+ 
+ struct isotropic : public material
+ {
+     isotropic( texture *a ) : albedo(a) {}
+     virtual bool scatter( const ray &r_in, const hit_record &rec, vec3 &attenuation, ray &scattered) const 
+     { 
+         // random scatter from the scattering point
+         scattered = ray( rec.p, random_in_unit_sphere() );
+         attenuation = albedo->value( rec.u, rec.v, rec.p );
+         return true; 
+     }
+     
+     texture *albedo;
  };
  
 #endif // _RAYTRACER_MATERIAL_H_
