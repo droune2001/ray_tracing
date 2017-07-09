@@ -55,7 +55,7 @@ std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 // 120 = 2*2*2*3*5
 #define OUT_WIDTH 1920
 #define OUT_HEIGHT 1080
-#define NB_SAMPLES 300 // samples per pixel for AA
+#define NB_SAMPLES 1000 // samples per pixel for AA
 #define RECURSE_DEPTH 50
 #define TILE_WIDTH 12
 #define TILE_HEIGHT 12
@@ -64,6 +64,7 @@ std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 hitable *mega_big_scene_end_of_book1();
 hitable *mega_big_scene_end_of_book2();
 hitable *simple_scene();
+hitable *another_simple();
 hitable *two_perlin_spheres();
 hitable *cornell_box();
 hitable *cornell_box_volumes();
@@ -207,8 +208,10 @@ int main( int argc, char **argv )
     camera cam(eye, lookat, up, vfov, float(nx) / float(ny), aperture, dist_to_focus, time0, time1);
     */
     
+    
+    /*
     // cornell camera
-    /*camera cam(
+    camera cam(
         vec3( 278.0f, 278.0f, -800.0f ), 
         vec3( 278.0f, 278.0f,  278.0f ), 
         vec3( 0.0f, 1.0f, 0.0f ), 
@@ -220,6 +223,8 @@ int main( int argc, char **argv )
         time1 );
     */
     
+    /* 
+    // mega book2 scene camera
     camera cam(
         vec3( 350.0f, 278.0f, -450.0f ), 
         vec3( 180.0f, 278.0f,  278.0f ), 
@@ -230,8 +235,20 @@ int main( int argc, char **argv )
         800.0f,
         time0, 
         time1 );
+    */
     
-    hitable *world = mega_big_scene_end_of_book2();
+    camera cam(
+        vec3( 0.0f,  0.1f, 1.0f ), 
+        vec3( 0.0f, 17.0f, 0.0f ), 
+        vec3( 0.0f,  1.0f, 0.0f ), 
+        35.0f, 
+        float(nx)/float(ny), 
+        0.0f, 
+        800.0f,
+        time0, 
+        time1 );
+    
+    hitable *world = another_simple();
     bvh_node *bvh_root = new bvh_node(
         ((hitable_list*)world)->list,
         ((hitable_list*)world)->list_size,
@@ -388,6 +405,41 @@ hitable *simple_scene()
     list[i++] = new sphere(vec3(0, 6, 0), 3, new diffuse_light(new constant_texture(vec3(4,4,3))));
     list[i++] = new xy_rect(3, 5, 1, 3, -2, new diffuse_light(new constant_texture(vec3(4,4,4))));
     return new hitable_list(list, i);
+}
+
+hitable *another_simple()
+{
+    int l = 0;
+    hitable **list = new hitable*[100];
+    
+    // sky
+    list[l++] = new flip_normals( new sphere(vec3(0,0,0), 50, new diffuse_light(new constant_texture(vec3(1,1,1)))));
+    
+    // giant floor
+    list[l++] = new sphere(vec3(0,-1000,0), 1000, new lambertian(new constant_texture(vec3(0.5,0.5,0.5))));
+    
+    // sphere
+    const float sphere_height = 17.0f;
+    const float sphere_radius = 1.0f;
+    const float diameter = 2.0f * sphere_radius;
+    const int nb = 5;
+    const float half_scene_size = ( nb * diameter ) / 2.0f;
+    for ( int i = 0; i < nb; ++i )
+    {
+        for ( int j = 0; j < nb; ++j )
+        {
+            vec3 position(
+                i * diameter - half_scene_size + sphere_radius, 
+                sphere_height, 
+                j * diameter - half_scene_size + sphere_radius);
+            float density = (nb-j)*1.0f;
+            float ior = 1.0f + (i+1)*0.1f;
+            hitable *boundary = new sphere(position, 1.0f, new dielectric(ior));
+            list[l++] = boundary;
+            list[l++] = new constant_medium(boundary, density, new constant_texture(vec3(0.2f, 0.4f, 0.9f)));
+        }
+    }
+    return new hitable_list(list, l);
 }
 
 hitable *two_perlin_spheres()
