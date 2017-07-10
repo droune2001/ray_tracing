@@ -1,19 +1,49 @@
+- window with preview (scaled blit of buffer)
+
 - command line params
-- window
-- ROI
+  -    TCLAP   (https://sourceforge.net/projects/tclap/files/)
+  - or dropt   (https://github.com/jamesderlin/dropt)
+  - or cxxopts (https://github.com/jarro2783/cxxopts - HEADER ONLY, one file. BUT exceptions...)
+  - batch forward args
+  - width x height
+  - samples per pixel
+  - bounce number
+  - nb threads
+  - ROI (offset x, offsety, width, height)
+  - win (spawn a window for preview or stay in console mode)
+  - input file (custom json?)
+    - input stock scene name
+  - output file
+  - output passes option
+  - output each
+
 - separate passes (normals, depth, AO)
+  - pre-pass with 1 ray and depth=1. 
+  - save to separate files (with suffix _n, _z, _ao)
+  - linear z? log z?
+  - exr with floats?
 
+- render one whole image x samples-per-pixels.
+  - accumulate and save (another thread?) between each sample (or group of samples? 8?)
+  - each thread renders one whole image instead of rendering tiles.
+  - subdivide the number of samples by the number of threads available.
+  - option to output different images instead of writing in the same?
+  - keep a full accumulation buffer to do the average at the end for a better result. The previous outputs are previews.
+  - time estimation using the time of the first image rendered x nb_samples / nb_threads
 
-
-
-
-
+- montecarlo
+- microfacet material.
+- normal, spec, ... textures.
+- triangle geometry: 
+  - obj reader?
+  - triangle mesh aabb.
+  - ray/triangle intersect.
 
 
 REF:
 
 Robust BVH Ray Traversal................http://jcgt.org/published/0002/02/02/
-Watertight Ray/Triangle Intesection.....http://jcgt.org/published/0002/01/05/
+Watertight Ray/Triangle Intersection....http://jcgt.org/published/0002/01/05/
 SSE RayBox Intersection Test............http://www.flipcode.com/archives/SSE_RayBox_Intersection_Test.shtml
 nanort..................................https://github.com/lighttransport/nanort
 Embree..................................https://embree.github.io/
