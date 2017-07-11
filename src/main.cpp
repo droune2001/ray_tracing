@@ -15,23 +15,25 @@
 #include <utility> // std::swap in c++11
 
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "../ext/stb_image.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define _CRT_SECURE_NO_WARNINGS
-#include "stb_image_write.h"
+#include "../ext/stb_image_write.h"
+
+#include "../ext/cxxopts.hpp"
 
 #ifndef PI
 #    define PI 3.14159f
 #endif
 
-std::default_random_engine generator;
-std::uniform_real_distribution<float> distribution(0.0f,1.0f);
-#define RAN01() distribution(generator)
-
 #define internal static
 #define global static
 #define local_persist static
+
+global std::default_random_engine generator;
+global std::uniform_real_distribution<float> distribution(0.0f,1.0f);
+#define RAN01() distribution(generator)
 
 #include "vec3.h"
 #include "perlin.h"
@@ -180,18 +182,72 @@ struct compute_tile_task : public task
 
 int main( int argc, char **argv )
 {
-    int nx = OUT_WIDTH;
-    int ny = OUT_HEIGHT;
-    int ns = NB_SAMPLES;
-    const char *out_filename = "out.png";
+    cxxopts::Options options( "raytracer", "nfauvet raytracer" );
+    options.add_options()
+        ( "w,width",   "Output image width", cxxopts::value<int>()->default_value( "1920" ) )
+        ( "h,height",  "Output image height", cxxopts::value<int>()->default_value( "1080" ) )
+        ( "s,samples", "Number of samples per pixel", cxxopts::value<int>()->default_value( "300" ) )
+        ( "r,recurse", "Number of bounces", cxxopts::value<int>()->default_value( "1" )->implicit_value( "50" ) )
+        ( "t,threads", "Number of threads", cxxopts::value<int>()->default_value( "1" ) )
+        ( "windowed",  "Show a preview window", cxxopts::value<bool>()->default_value( "false" ) )
+        ( "i,input",   "Input filename", cxxopts::value<std::string>() )
+        ( "o,output",  "Output filename", cxxopts::value<std::string>()->default_value( "out.png" ) )
+        ( "p,passes",  "Output passes as separate files", cxxopts::value<bool>()->default_value( "false" ) )
+        ( "m,multi",   "Output one file for each sample", cxxopts::value<bool>()->default_value( "false" ) )
+        ( "rx",        "ROI start x (from left)", cxxopts::value<int>()->default_value( "0" ) )
+        ( "ry",        "ROI start y (from top)", cxxopts::value<int>()->default_value( "0" ) )
+        ( "rw",        "ROI width", cxxopts::value<int>()->default_value( "1" ) )
+        ( "rh",        "ROI height", cxxopts::value<int>()->default_value( "1" ) )
+        ( "x,norender","Do not render. Just print info.", cxxopts::value<bool>()->default_value( "false" ) )
+        ;
     
-    std::cout << "Output file: \"" << out_filename << "\"\n";
-    std::cout << "Resolution: " << nx << "x" << ny << "\n";
-    std::cout << "Samples per pixel: " << ns << "\n";
-    std::cout << "Bounce depth: " << RECURSE_DEPTH << "\n";
-    std::cout << "Number of Threads: " << NB_THREADS << "\n";
+    options.parse( argc, argv );
     
-    unsigned int *image_buffer = new unsigned int[nx*ny];
+    struct 
+    {
+        int nx; //
+        int ny; //
+        int ns; //
+        int bounces;
+        int threads;
+        bool windowed;
+        std::string in_filename;
+        std::string out_filename;
+        bool passes;
+        bool out_separate;
+        int rx;
+        int ry;
+        int rw;
+        int rh;
+    } o;
+    
+    // parse
+    o.nx = options["width"].as<int>();
+    o.ny = options["height"].as<int>();
+    o.ns = options["samples"].as<int>();
+    o.bounces = options["recurse"].as<int>();
+    o.threads = options["threads"].as<int>();
+    o.windowed = options["windowed"].as<bool>();
+    
+    std::cout << std::endl;
+    std::cout << "Resolution: " << o.nx << "x" << o.ny << "\n";
+    std::cout << "Samples per pixel: " << o.ns << "\n";
+    std::cout << "Bounce depth: " << o.bounces << "\n";
+    std::cout << "Number of Threads: " << o.threads << "\n";
+    std::cout << "Windowed: " << o.windowed << "\n";
+    std::cout << "Input file: \"" << o.in_filename << "\"\n";
+    std::cout << "Output file: \"" << o.out_filename << "\"\n";
+    
+    if ( options.count("x") )
+    {
+        std::cout << "No Rendering. Exiting.\n";
+        return 0;
+    }
+    
+    
+    
+    
+    unsigned int *image_buffer = new unsigned int[o.nx * o.ny];
     unsigned int *buffer_ptr = image_buffer;
     
     float time0 = 0.0f;
@@ -242,7 +298,7 @@ int main( int argc, char **argv )
         vec3( 0.0f, 17.0f, 0.0f ), 
         vec3( 0.0f,  1.0f, 0.0f ), 
         35.0f, 
-        float(nx)/float(ny), 
+        float(o.nx)/float(o.ny), 
         0.0f, 
         800.0f,
         time0, 
@@ -255,7 +311,7 @@ int main( int argc, char **argv )
         time0, time1 );
     
     // percent compute
-    int nb_pixels = nx * ny;
+    int nb_pixels = o.nx * o.ny;
     int pixels_per_percent = nb_pixels / 100;
     int current_nb_pixels = 0;
     int percent = 0;
@@ -263,10 +319,10 @@ int main( int argc, char **argv )
     // tile setup
     int tile_width = TILE_WIDTH;
     int tile_height = TILE_HEIGHT;
-    int nb_tile_x = nx / tile_width;
-    int nb_tile_y = ny / tile_height;
-    int remainder_x = nx - ( nb_tile_x * tile_width );
-    int remainder_y = ny - ( nb_tile_y * tile_height );
+    int nb_tile_x = o.nx / tile_width;
+    int nb_tile_y = o.ny / tile_height;
+    int remainder_x = o.nx - ( nb_tile_x * tile_width );
+    int remainder_y = o.ny - ( nb_tile_y * tile_height );
     g_total_nb_tiles = nb_tile_x * nb_tile_y;
     g_nb_tiles_finished = 0;
     g_percent_complete = 0;
@@ -288,9 +344,9 @@ int main( int argc, char **argv )
             task->tile_origin_y = j * tile_height; // bottom left corner of a tile
             task->tile_width = tile_width;
             task->tile_height = tile_height;
-            task->image_width = nx;
-            task->image_height = ny;
-            task->samples = ns;
+            task->image_width = o.nx;
+            task->image_height = o.ny;
+            task->samples = o.ns;
             task->shared_buffer = image_buffer;
             task->world = (hitable*)bvh_root;//world;
             task->cam = &cam;
@@ -323,10 +379,10 @@ int main( int argc, char **argv )
     std::cout << "Writing file.\n";
     
     int res = stbi_write_png(
-        out_filename,
-        nx, ny, 4,
+        o.out_filename.c_str(),
+        o.nx, o.ny, 4,
         (void*)image_buffer,
-        4*nx); // row stride
+        4*o.nx); // row stride
     
     delete []image_buffer;
     
