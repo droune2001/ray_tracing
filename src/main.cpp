@@ -1,3 +1,25 @@
+/** raytracer
+ *  @author: nfauvet
+ *  @usage: main.exe -w 1920 -h 1080 -s 300 -r 50 -t 4 -o "out.png"
+
+ ( "w,width",   "Output image width", cxxopts::value<int>()->default_value( "1920" ) )
+ ( "h,height",  "Output image height", cxxopts::value<int>()->default_value( "1080" ) )
+ ( "s,samples", "Number of samples per pixel", cxxopts::value<int>()->default_value( "300" ) )
+ ( "r,recurse", "Number of bounces", cxxopts::value<int>()->default_value( "1" )->implicit_value( "50" ) )
+ ( "t,threads", "Number of threads", cxxopts::value<int>()->default_value( "1" ) )
+ ( "windowed",  "Show a preview window", cxxopts::value<bool>()->default_value( "false" ) )
+ ( "i,input",   "Input filename", cxxopts::value<std::string>() )
+ ( "o,output",  "Output filename", cxxopts::value<std::string>()->default_value( "out.png" ) )
+ ( "p,passes",  "Output passes as separate files", cxxopts::value<bool>()->default_value( "false" ) )
+ ( "m,multi",   "Output one file for each sample", cxxopts::value<bool>()->default_value( "false" ) )
+ ( "rx",        "ROI start x (from left)", cxxopts::value<int>()->default_value( "0" ) )
+ ( "ry",        "ROI start y (from top)", cxxopts::value<int>()->default_value( "0" ) )
+ ( "rw",        "ROI width", cxxopts::value<int>()->default_value( "1" ) )
+ ( "rh",        "ROI height", cxxopts::value<int>()->default_value( "1" ) )
+ ( "x,norender","Do not render. Just print info.", cxxopts::value<bool>()->default_value( "false" ) )
+
+ */
+
 #include <iostream>
 #include <fstream>
 #define _USE_MATH_DEFINES
@@ -21,6 +43,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include "../ext/stb_image_write.h"
 
+#define CXXOPTS_NO_RTTI
 #include "../ext/cxxopts.hpp"
 
 #ifndef PI
@@ -184,63 +207,95 @@ int main( int argc, char **argv )
 {
     cxxopts::Options options( "raytracer", "nfauvet raytracer" );
     options.add_options()
-        ( "w,width",   "Output image width", cxxopts::value<int>()->default_value( "1920" ) )
-        ( "h,height",  "Output image height", cxxopts::value<int>()->default_value( "1080" ) )
-        ( "s,samples", "Number of samples per pixel", cxxopts::value<int>()->default_value( "300" ) )
-        ( "r,recurse", "Number of bounces", cxxopts::value<int>()->default_value( "1" )->implicit_value( "50" ) )
-        ( "t,threads", "Number of threads", cxxopts::value<int>()->default_value( "1" ) )
-        ( "windowed",  "Show a preview window", cxxopts::value<bool>()->default_value( "false" ) )
-        ( "i,input",   "Input filename", cxxopts::value<std::string>() )
-        ( "o,output",  "Output filename", cxxopts::value<std::string>()->default_value( "out.png" ) )
-        ( "p,passes",  "Output passes as separate files", cxxopts::value<bool>()->default_value( "false" ) )
-        ( "m,multi",   "Output one file for each sample", cxxopts::value<bool>()->default_value( "false" ) )
-        ( "rx",        "ROI start x (from left)", cxxopts::value<int>()->default_value( "0" ) )
-        ( "ry",        "ROI start y (from top)", cxxopts::value<int>()->default_value( "0" ) )
-        ( "rw",        "ROI width", cxxopts::value<int>()->default_value( "1" ) )
-        ( "rh",        "ROI height", cxxopts::value<int>()->default_value( "1" ) )
-        ( "x,norender","Do not render. Just print info.", cxxopts::value<bool>()->default_value( "false" ) )
+        ( "w,width",       "Output image width", cxxopts::value<int>()->default_value( "1920" ) )
+        ( "h,height",      "Output image height", cxxopts::value<int>()->default_value( "1080" ) )
+        ( "s,samples",     "Number of samples per pixel", cxxopts::value<int>()->default_value( "300" ) )
+        ( "r,recurse",     "Number of bounces", cxxopts::value<int>()->default_value( "1" )->implicit_value( "50" ) )
+        ( "t,threads",     "Number of threads", cxxopts::value<int>()->default_value( "1" ) )
+        ( "windowed",      "Show a preview window", cxxopts::value<int>()->default_value( "0" )->implicit_value( "1" ) )
+        ( "i,input",       "Input filename", cxxopts::value<std::string>() )
+        ( "o,output",      "Output filename", cxxopts::value<std::string>()->default_value( "out.png" ) )
+        ( "p,passes",      "Output passes as separate files", cxxopts::value<int>()->default_value( "0" )->implicit_value( "1" ) )
+        ( "m,multi",       "Output one file for each sample", cxxopts::value<int>()->default_value( "0" )->implicit_value( "1" ) )
+        ( "rx",            "ROI start x (from left)", cxxopts::value<int>()->default_value( "0" ) )
+        ( "ry",            "ROI start y (from top)", cxxopts::value<int>()->default_value( "0" ) )
+        ( "rw",            "ROI width", cxxopts::value<int>()->default_value( "1" ) )
+        ( "rh",            "ROI height", cxxopts::value<int>()->default_value( "1" ) )
+        ( "x,exit",        "Exit without rendering", cxxopts::value<int>()->default_value( "0" )->implicit_value( "1" ) )
+        ( "v,verbose",     "Prints text", cxxopts::value<int>()->default_value( "0" )->implicit_value( "1" ) )
+        ( "extra-verbose", "Prints extra text", cxxopts::value<int>()->default_value( "0" )->implicit_value( "1" ) )
         ;
     
     options.parse( argc, argv );
     
     struct 
     {
-        int nx; //
-        int ny; //
-        int ns; //
+        int nx;
+        int ny;
+        int ns;
         int bounces;
         int threads;
-        bool windowed;
+        int windowed;
         std::string in_filename;
         std::string out_filename;
-        bool passes;
-        bool out_separate;
+        int passes;
+        int out_separate;
         int rx;
         int ry;
         int rw;
         int rh;
+        int dontrender;
+        int verbose;
+        int extraverbose;
     } o;
     
     // parse
-    o.nx = options["width"].as<int>();
-    o.ny = options["height"].as<int>();
-    o.ns = options["samples"].as<int>();
-    o.bounces = options["recurse"].as<int>();
-    o.threads = options["threads"].as<int>();
-    o.windowed = options["windowed"].as<bool>();
-    
-    std::cout << std::endl;
-    std::cout << "Resolution: " << o.nx << "x" << o.ny << "\n";
-    std::cout << "Samples per pixel: " << o.ns << "\n";
-    std::cout << "Bounce depth: " << o.bounces << "\n";
-    std::cout << "Number of Threads: " << o.threads << "\n";
-    std::cout << "Windowed: " << o.windowed << "\n";
-    std::cout << "Input file: \"" << o.in_filename << "\"\n";
-    std::cout << "Output file: \"" << o.out_filename << "\"\n";
-    
-    if ( options.count("x") )
+    o.nx = options["w"].as<int>();
+    o.ny = options["h"].as<int>();
+    o.ns = options["s"].as<int>();
+    o.bounces = options["r"].as<int>();
+    o.threads = options["t"].as<int>();
+    o.windowed = options["windowed"].as<int>();
+    o.in_filename = options["i"].as<std::string>();
+    o.out_filename = options["o"].as<std::string>();
+    o.passes = options["p"].as<int>();
+    o.out_separate = options["m"].as<int>();
+    o.rx = options["rx"].as<int>();
+    o.ry = options["ry"].as<int>();
+    o.rw = options["rw"].as<int>();
+    o.rh = options["rh"].as<int>();
+    o.dontrender = options["x"].as<int>();
+    o.verbose = options["v"].as<int>();
+    o.extraverbose = options["extra-verbose"].as<int>();
+
+    if ( o.verbose )
     {
-        std::cout << "No Rendering. Exiting.\n";
+        std::cout << std::endl;
+        if ( o.extraverbose )
+        {
+            std::cout << "~ raytracer by nfauvet ~\n\n";
+        }
+
+        std::cout << "Resolution          : " << o.nx << "x" << o.ny << "\n";
+        std::cout << "Samples per pixel   : " << o.ns << "\n";
+        std::cout << "Bounce depth        : " << o.bounces << "\n";
+        std::cout << "Number of Threads   : " << o.threads << "\n";
+        std::cout << "Windowed            : " << o.windowed << "\n";
+        std::cout << "Input file          : \"" << o.in_filename << "\"\n";
+        std::cout << "Output file         : \"" << o.out_filename << "\"\n";
+        std::cout << "Render passes       : " << o.passes << "\n";
+        std::cout << "One file per sample : " << o.out_separate << "\n";
+        std::cout << "ROI x               : " << o.rx << "\n";
+        std::cout << "ROI y               : " << o.ry << "\n";
+        std::cout << "ROI width           : " << o.rw << "\n";
+        std::cout << "ROI height          : " << o.rh << "\n";
+        std::cout << "Exit without render : " << o.dontrender << "\n";
+        std::cout << "Verbose             : " << o.verbose << "\n";
+        std::cout << "Extra verbose       : " << o.extraverbose << "\n";
+    }
+
+    if ( options.count("x") ) 
+    {
         return 0;
     }
     
