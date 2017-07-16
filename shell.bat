@@ -10,7 +10,7 @@ set path=C:\home\openseeit;%path%
 REM pour rediriger un flux dans une DOSKY, utiliser $g (=greater)
 DOSKEY ls=dir
 DOSKEY os=openseeit.exe $*
-DOSKEY run=main.exe $T openseeit.exe out.png
-DOSKEY brun=call ..\src\build.bat $T main.exe $T openseeit.exe out.png
+DOSKEY run=main.exe $* $T openseeit.exe out.png
+DOSKEY brun=call ..\src\build.bat $T main.exe $* $T openseeit.exe out.png
 
 cd C:\home\dev\ray_tracing\bin
