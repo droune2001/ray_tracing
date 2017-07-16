@@ -111,6 +111,8 @@ vec3 color( const ray &r, hitable *world, int max_depth, int depth )
 global std::mutex g_console_mutex;
 global int g_total_nb_tiles = 0;
 global int g_nb_tiles_finished = 0;
+global int g_nb_samples_finished = 0;
+global int g_total_nb_samples = 0;
 global float g_percent_complete = 0.0f;
 
 struct compute_tile_task : public task
@@ -182,6 +184,65 @@ struct compute_tile_task : public task
     int samples = 1;
     int max_depth;
     unsigned int *shared_buffer;
+    hitable *world;
+    camera *cam;
+};
+
+struct compute_one_sample_task : public task
+{
+    compute_one_sample_task() : task() {}
+    
+    virtual ~compute_one_sample_task() override
+    {
+        std::unique_lock<std::mutex> g(g_console_mutex);
+        ++g_nb_samples_finished;
+        g_percent_complete = 100.0f * (float)g_nb_samples_finished / (float)g_total_nb_samples;
+        
+        std::cout << std::fixed << std::setprecision(2) << g_percent_complete << "%\r";
+    }
+    
+    virtual void run() override
+    {
+        for( int j = image_height-1; j >= 0; --j )
+        {
+            float *line_buffer_ptr = 
+                shared_buffer + 
+                (image_height - 1 - j) * 4 * image_width;
+            
+            float v = float(j + RAN01()) / float(image_height);
+            
+            for( int i = 0; i < image_width; ++i )
+            {
+                float u = float(i + RAN01()) / float(image_width);
+                
+                ray r = cam->get_ray(u,v);
+                vec3 col = color(r, world, max_depth, 0);
+                
+                // gamma correction
+                col = vec3(sqrtf(col[0]), sqrtf(col[1]), sqrtf(col[2]) );
+                col.clamp01();
+                
+                // ABGR
+                *line_buffer_ptr++ = 1.0f;
+                *line_buffer_ptr++ = col.b();
+                *line_buffer_ptr++ = col.g();
+                *line_buffer_ptr++ = col.r();
+            }
+        }
+    }
+    
+    virtual void showTask() override
+    {
+        //std::unique_lock<std::mutex> g(g_console_mutex);
+        //std::cout << "thread " << "( " << tile_origin_x << ", " << tile_origin_y << ")"
+        //<< " id(" << std::this_thread::get_id() << ") working...\n";
+    }
+    
+    int image_width = 1;
+    int image_height = 1;
+    int samples_id = 0;
+    int max_depth;
+    float *shared_buffer;
     hitable *world;
     camera *cam;
 };
@@ -292,9 +353,17 @@ int main( int argc, char **argv )
     
     
     
+    unsigned int buffer_memory_in_bytes = 0;
     
     unsigned int *image_buffer = new unsigned int[o.nx * o.ny];
-    unsigned int *buffer_ptr = image_buffer;
+    buffer_memory_in_bytes += (o.nx*o.ny)*sizeof(unsigned int);
+    
+    float **full_image_buffer_float = new float*[o.ns];
+    for(int s=0;s<o.ns;++s){
+        full_image_buffer_float[s] = new float[o.nx * o.ny * 4];
+    }
+    buffer_memory_in_bytes += o.ns*4*o.nx*o.ny*sizeof(float);
+    
     
     float time0 = 0.0f;
     float time1 = 1.0f;
@@ -302,12 +371,12 @@ int main( int argc, char **argv )
     // camera setup
     
     // cornell camera
-    //camera cam( vec3( 278.0f, 278.0f, -800.0f ), vec3( 278.0f, 278.0f,  278.0f ), vec3( 0.0f, 1.0f, 0.0f ), 40.0f, float(nx)/float(ny), 0.0f, 800.0f, time0, time1 );
+    camera cam( vec3( 278.0f, 278.0f, -800.0f ), vec3( 278.0f, 278.0f, 278.0f ), vec3( 0.0f, 1.0f, 0.0f ), 40.0f, float(o.nx)/float(o.ny), 0.0f, 800.0f, time0, time1 );
     
     // mega book2 scene camera
     //camera cam( vec3( 350.0f, 278.0f, -450.0f ), vec3( 180.0f, 278.0f,  278.0f ), vec3( 0.0f, 1.0f, 0.0f ), 45.0f, float(nx)/float(ny), 0.0f, 800.0f, time0, time1 );
     
-    
+    /*
     camera cam(
         vec3( 0.0f,  0.1f, 1.0f ), 
         vec3( 0.0f, 17.0f, 0.0f ), 
@@ -318,8 +387,9 @@ int main( int argc, char **argv )
         800.0f,
         time0, 
         time1 );
+    */
     
-    hitable *world = another_simple();
+    hitable *world = cornell_box();
     bvh_node *bvh_root = new bvh_node(
         ((hitable_list*)world)->list,
         ((hitable_list*)world)->list_size,
@@ -331,44 +401,44 @@ int main( int argc, char **argv )
     int current_nb_pixels = 0;
     int percent = 0;
     
-    // tile setup
-    int tile_width = o.tile_width;
-    int tile_height = o.tile_height;
-    int nb_tile_x = o.nx / tile_width;
-    int nb_tile_y = o.ny / tile_height;
-    int remainder_x = o.nx - ( nb_tile_x * tile_width );
-    int remainder_y = o.ny - ( nb_tile_y * tile_height );
-    g_total_nb_tiles = nb_tile_x * nb_tile_y;
-    g_nb_tiles_finished = 0;
     g_percent_complete = 0;
-    // TODO(nfauvet): compute remainder
+    g_total_nb_samples = o.ns;
+    g_nb_samples_finished = 0;
     
-    std::cout << "nb_tile_x: " << nb_tile_x << "\n";
-    std::cout << "nb_tile_y: " << nb_tile_y << "\n";
-    std::cout << "total_nb_tiles: " << g_total_nb_tiles << "\n";
+    if ( buffer_memory_in_bytes > (1024*1024*1024) )
+    {
+        std::cout << "buffer_memory: " << ( buffer_memory_in_bytes / ( 1024 * 1024 * 1024 )) << " GiB\n";
+    }
+    else if ( buffer_memory_in_bytes > (1024*1024) )
+    {
+        std::cout << "buffer_memory: " << ( buffer_memory_in_bytes / ( 1024 * 1024 )) << " MiB\n";
+    }
+    else if ( buffer_memory_in_bytes > 1024 )
+    {
+        std::cout << "buffer_memory: " << ( buffer_memory_in_bytes / ( 1024 )) << " KiB\n";
+    }
+    else
+    {
+        std::cout << "buffer_memory: " << buffer_memory_in_bytes  << " Bytes\n";
+    }
     
     thread_pool *pool = new thread_pool( o.threads );
     
     auto time_start = std::chrono::high_resolution_clock::now();
-    for ( int j = nb_tile_y - 1; j >=0; --j ) // top to bottom
+    
+    // one task per sample
+    for ( int i = 0; i < o.ns; ++i )
     {
-        for ( int i = 0; i < nb_tile_x; ++i ) // left to right
-        {
-            compute_tile_task *task = new compute_tile_task();
-            task->tile_origin_x = i * tile_width;
-            task->tile_origin_y = j * tile_height; // bottom left corner of a tile
-            task->tile_width = tile_width;
-            task->tile_height = tile_height;
-            task->image_width = o.nx;
-            task->image_height = o.ny;
-            task->samples = o.ns;
-            task->max_depth = o.bounces;
-            task->shared_buffer = image_buffer;
-            task->world = (hitable*)bvh_root;//world;
-            task->cam = &cam;
-            
-            pool->addTask( task );
-        }
+        compute_one_sample_task *task = new compute_one_sample_task();
+        task->image_width = o.nx;
+        task->image_height = o.ny;
+        task->samples_id = i;
+        task->max_depth = o.bounces;
+        task->shared_buffer = full_image_buffer_float[i];
+        task->world = (hitable*)bvh_root;//world;
+        task->cam = &cam;
+        
+        pool->addTask( task );
     }
     
     // wait
@@ -376,6 +446,33 @@ int main( int argc, char **argv )
     delete pool;
     
     std::cout << "\n";
+    
+    // resolve float buffer
+    float one_over_n_samples = 1.0f / o.ns;
+    for ( int j = o.ny - 1; j >= 0; --j )
+    {
+        unsigned int *line_buffer_ptr = image_buffer + j * o.nx;
+        
+        for ( int i = 0; i < o.nx; ++i )
+        {
+            unsigned int base_idx = j*4*o.nx+4*i;
+            float fr = 0.0f;
+            float fg = 0.0f;
+            float fb = 0.0f;
+            for ( int s = 0; s < o.ns; ++s )
+            {
+                fr += full_image_buffer_float[s][ base_idx + 3 ];
+                fg += full_image_buffer_float[s][ base_idx + 2 ];
+                fb += full_image_buffer_float[s][ base_idx + 1 ];
+            }
+            unsigned int ir = (unsigned int)( fr * 255.99f * one_over_n_samples );
+            unsigned int ig = (unsigned int)( fg * 255.99f * one_over_n_samples );
+            unsigned int ib = (unsigned int)( fb * 255.99f * one_over_n_samples );
+            
+            // 0xABGR
+            *line_buffer_ptr++ = ( 0xff000000 | (ib << 16) | (ig << 8) | (ir << 0) );
+        }
+    }
     
     auto time_end = std::chrono::high_resolution_clock::now();
     
