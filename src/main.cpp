@@ -222,7 +222,6 @@ struct compute_one_sample_task : public task
                     col += color( r, world, max_depth, 0 );
                 }
                 col /= (float)sub_samples;
-                col.clamp01(); // ?
                 
                 // ABGR
                 *line_buffer_ptr++ = 1.0f;
@@ -453,9 +452,12 @@ int main( int argc, char **argv )
     {
         std::ostringstream oss;
         
+        unsigned int *int_image_buffer = new unsigned int[o.nx*o.ny];
+        
         for ( int s = 0; s < o.ns; ++s )
         {
-            unsigned int *int_image_buffer = new unsigned int[o.nx*o.ny];
+            float *float_image = full_image_buffer_float[s];
+            
             for ( int j = o.ny - 1; j >= 0; --j )
             {
                 unsigned int *line_buffer_ptr = int_image_buffer + j * o.nx;
@@ -463,12 +465,13 @@ int main( int argc, char **argv )
                 for ( int i = 0; i < o.nx; ++i )
                 {
                     unsigned int base_idx = j*4*o.nx+4*i;
-                    float fr = full_image_buffer_float[s][ base_idx + 3 ];
-                    float fg = full_image_buffer_float[s][ base_idx + 2 ];
-                    float fb = full_image_buffer_float[s][ base_idx + 1 ];
+                    float fr = float_image[ base_idx + 3 ];
+                    float fg = float_image[ base_idx + 2 ];
+                    float fb = float_image[ base_idx + 1 ];
                     
                     // gamma correction
                     vec3 col = vec3( sqrtf(fr), sqrtf(fg), sqrtf(fb) );
+                    col.clamp01();
                     
                     unsigned int ir = (unsigned int)( col.r() * 255.99f );
                     unsigned int ig = (unsigned int)( col.g() * 255.99f );
@@ -489,9 +492,9 @@ int main( int argc, char **argv )
                 o.nx, o.ny, 4,
                 (void*)int_image_buffer,
                 4*o.nx); // row stride
-            
-            delete [] int_image_buffer;
         }
+        
+        delete [] int_image_buffer;
     }
     
     // resolve float buffer
@@ -508,9 +511,10 @@ int main( int argc, char **argv )
             float fb = 0.0f;
             for ( int s = 0; s < o.ns; ++s )
             {
-                fr += full_image_buffer_float[s][ base_idx + 3 ];
-                fg += full_image_buffer_float[s][ base_idx + 2 ];
-                fb += full_image_buffer_float[s][ base_idx + 1 ];
+                float *float_image = full_image_buffer_float[s];
+                fr += float_image[ base_idx + 3 ];
+                fg += float_image[ base_idx + 2 ];
+                fb += float_image[ base_idx + 1 ];
             }
             
             fr *= one_over_n_samples;
@@ -519,6 +523,7 @@ int main( int argc, char **argv )
             
             // gamma correction
             vec3 col = vec3( sqrtf(fr), sqrtf(fg), sqrtf(fb) );
+            col.clamp01();
             
             unsigned int ir = (unsigned int)( col.r() * 255.99f );
             unsigned int ig = (unsigned int)( col.g() * 255.99f );
