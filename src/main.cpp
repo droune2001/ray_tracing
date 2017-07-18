@@ -198,7 +198,8 @@ struct compute_one_sample_task : public task
         ++g_nb_samples_finished;
         g_percent_complete = 100.0f * (float)g_nb_samples_finished / (float)g_total_nb_samples;
         
-        std::cout << std::fixed << std::setprecision(2) << g_percent_complete << "%\r";
+        std::cout << g_nb_samples_finished << "/" << g_total_nb_samples << " : " 
+            << std::fixed << std::setprecision(2) << g_percent_complete << "%\r";
     }
     
     virtual void run() override
@@ -209,18 +210,19 @@ struct compute_one_sample_task : public task
                 shared_buffer + 
                 (image_height - 1 - j) * 4 * image_width;
             
-            float v = float(j + RAN01()) / float(image_height);
-            
             for( int i = 0; i < image_width; ++i )
             {
-                float u = float(i + RAN01()) / float(image_width);
-                
-                ray r = cam->get_ray(u,v);
-                vec3 col = color(r, world, max_depth, 0);
-                
-                // gamma correction
-                col = vec3(sqrtf(col[0]), sqrtf(col[1]), sqrtf(col[2]) );
-                col.clamp01();
+                vec3 col( 0, 0, 0 );
+                for ( int s = 0; s < sub_samples; ++s ) // multisample
+                {
+                    float u = float( i + RAN01() ) / float( image_width );
+                    float v = float( j + RAN01() ) / float( image_height );
+                    
+                    ray r = cam->get_ray( u, v );
+                    col += color( r, world, max_depth, 0 );
+                }
+                col /= (float)sub_samples;
+                col.clamp01(); // ?
                 
                 // ABGR
                 *line_buffer_ptr++ = 1.0f;
@@ -240,7 +242,8 @@ struct compute_one_sample_task : public task
     
     int image_width = 1;
     int image_height = 1;
-    int samples_id = 0;
+    int sub_samples = 1;
+    int sample_id = 0;
     int max_depth;
     float *shared_buffer;
     hitable *world;
@@ -253,7 +256,8 @@ int main( int argc, char **argv )
     options.add_options()
         ( "w,width",       "Output image width", cxxopts::value<int>()->default_value( "1920" ) )
         ( "h,height",      "Output image height", cxxopts::value<int>()->default_value( "1080" ) )
-        ( "s,samples",     "Number of samples per pixel", cxxopts::value<int>()->default_value( "300" ) )
+        ( "s,samples",     "Number of samples per pixel", cxxopts::value<int>()->default_value( "256" ) )
+        ( "S,sub-samples", "Number of sub-samples per thread", cxxopts::value<int>()->default_value( "8" ) )
         ( "r,recurse",     "Number of bounces", cxxopts::value<int>()->default_value( "1" )->implicit_value( "50" ) )
         ( "t,threads",     "Number of threads", cxxopts::value<int>()->default_value( "1" ) )
         ( "tw",            "Tile width", cxxopts::value<int>()->default_value( "1" ) )
@@ -269,7 +273,7 @@ int main( int argc, char **argv )
         ( "rh",            "ROI height", cxxopts::value<int>()->default_value( "1" ) )
         ( "x,exit",        "Exit without rendering", cxxopts::value<int>()->default_value( "0" )->implicit_value( "1" ) )
         ( "v,verbose",     "Prints text", cxxopts::value<int>()->default_value( "0" )->implicit_value( "1" ) )
-        ( "extra-verbose", "Prints extra text", cxxopts::value<int>()->default_value( "0" )->implicit_value( "1" ) )
+        ( "V,extra-verbose", "Prints extra text", cxxopts::value<int>()->default_value( "0" )->implicit_value( "1" ) )
         ;
     
     options.parse( argc, argv );
@@ -279,10 +283,9 @@ int main( int argc, char **argv )
         int nx;
         int ny;
         int ns;
+        int nss;
         int bounces;
         int threads;
-        int tile_width;
-        int tile_height;
         int windowed;
         std::string in_filename;
         std::string out_filename;
@@ -301,10 +304,9 @@ int main( int argc, char **argv )
     o.nx = options["w"].as<int>();
     o.ny = options["h"].as<int>();
     o.ns = options["s"].as<int>();
+    o.nss = options["S"].as<int>();
     o.bounces = options["r"].as<int>();
     o.threads = options["t"].as<int>();
-    o.tile_width = options["tw"].as<int>();
-    o.tile_height = options["th"].as<int>();
     o.windowed = options["windowed"].as<int>();
     o.in_filename = options["i"].as<std::string>();
     o.out_filename = options["o"].as<std::string>();
@@ -328,10 +330,9 @@ int main( int argc, char **argv )
         
         std::cout << "Resolution          : " << o.nx << "x" << o.ny << "\n";
         std::cout << "Samples per pixel   : " << o.ns << "\n";
+        std::cout << "Samples per thread  : " << o.nss << "\n";
         std::cout << "Bounce depth        : " << o.bounces << "\n";
         std::cout << "Number of Threads   : " << o.threads << "\n";
-        std::cout << "Tile width          : " << o.tile_width << "\n";
-        std::cout << "Tile height         : " << o.tile_height << "\n";
         std::cout << "Windowed            : " << o.windowed << "\n";
         std::cout << "Input file          : \"" << o.in_filename << "\"\n";
         std::cout << "Output file         : \"" << o.out_filename << "\"\n";
@@ -346,24 +347,40 @@ int main( int argc, char **argv )
         std::cout << "Extra verbose       : " << o.extraverbose << "\n";
     }
     
-    if ( options.count("x") ) 
+    unsigned int buffer_memory_in_bytes = 0;
+    
+    unsigned int *image_buffer = nullptr;
+    buffer_memory_in_bytes += (o.nx*o.ny)*sizeof(unsigned int);
+    
+    float **full_image_buffer_float = nullptr;
+    buffer_memory_in_bytes += o.ns*4*o.nx*o.ny*sizeof(float);
+    
+    if ( o.verbose )
     {
+        if ( buffer_memory_in_bytes > (1024*1024*1024) ) {
+            std::cout << "Buffer memory       : " << ( buffer_memory_in_bytes / ( 1024 * 1024 * 1024 )) << " GiB\n";
+        } else if ( buffer_memory_in_bytes > (1024*1024) ) {
+            std::cout << "Buffer memory       : " << ( buffer_memory_in_bytes / ( 1024 * 1024 )) << " MiB\n";
+        } else if ( buffer_memory_in_bytes > 1024 ) {
+            std::cout << "Buffer memory       : " << ( buffer_memory_in_bytes / ( 1024 )) << " KiB\n";
+        } else {
+            std::cout << "Buffer memory       : " << buffer_memory_in_bytes  << " Bytes\n";
+        }
+    }
+    
+    if ( o.dontrender ) 
+    {
+        std::cout << "Early exit.\n";
         return 0;
     }
     
-    
-    
-    unsigned int buffer_memory_in_bytes = 0;
-    
-    unsigned int *image_buffer = new unsigned int[o.nx * o.ny];
-    buffer_memory_in_bytes += (o.nx*o.ny)*sizeof(unsigned int);
-    
-    float **full_image_buffer_float = new float*[o.ns];
-    for(int s=0;s<o.ns;++s){
+    // Allocate
+    image_buffer = new unsigned int[o.nx * o.ny];
+    full_image_buffer_float = new float*[o.ns];
+    for ( int s = 0; s < o.ns; ++s ) 
+    {
         full_image_buffer_float[s] = new float[o.nx * o.ny * 4];
     }
-    buffer_memory_in_bytes += o.ns*4*o.nx*o.ny*sizeof(float);
-    
     
     float time0 = 0.0f;
     float time1 = 1.0f;
@@ -405,23 +422,6 @@ int main( int argc, char **argv )
     g_total_nb_samples = o.ns;
     g_nb_samples_finished = 0;
     
-    if ( buffer_memory_in_bytes > (1024*1024*1024) )
-    {
-        std::cout << "buffer_memory: " << ( buffer_memory_in_bytes / ( 1024 * 1024 * 1024 )) << " GiB\n";
-    }
-    else if ( buffer_memory_in_bytes > (1024*1024) )
-    {
-        std::cout << "buffer_memory: " << ( buffer_memory_in_bytes / ( 1024 * 1024 )) << " MiB\n";
-    }
-    else if ( buffer_memory_in_bytes > 1024 )
-    {
-        std::cout << "buffer_memory: " << ( buffer_memory_in_bytes / ( 1024 )) << " KiB\n";
-    }
-    else
-    {
-        std::cout << "buffer_memory: " << buffer_memory_in_bytes  << " Bytes\n";
-    }
-    
     thread_pool *pool = new thread_pool( o.threads );
     
     auto time_start = std::chrono::high_resolution_clock::now();
@@ -432,10 +432,11 @@ int main( int argc, char **argv )
         compute_one_sample_task *task = new compute_one_sample_task();
         task->image_width = o.nx;
         task->image_height = o.ny;
-        task->samples_id = i;
+        task->sub_samples = o.nss;
+        task->sample_id = i;
         task->max_depth = o.bounces;
         task->shared_buffer = full_image_buffer_float[i];
-        task->world = (hitable*)bvh_root;//world;
+        task->world = (hitable*)bvh_root;
         task->cam = &cam;
         
         pool->addTask( task );
@@ -446,6 +447,52 @@ int main( int argc, char **argv )
     delete pool;
     
     std::cout << "\n";
+    
+    // dump all sample passes
+    if ( o.out_separate )
+    {
+        std::ostringstream oss;
+        
+        for ( int s = 0; s < o.ns; ++s )
+        {
+            unsigned int *int_image_buffer = new unsigned int[o.nx*o.ny];
+            for ( int j = o.ny - 1; j >= 0; --j )
+            {
+                unsigned int *line_buffer_ptr = int_image_buffer + j * o.nx;
+                
+                for ( int i = 0; i < o.nx; ++i )
+                {
+                    unsigned int base_idx = j*4*o.nx+4*i;
+                    float fr = full_image_buffer_float[s][ base_idx + 3 ];
+                    float fg = full_image_buffer_float[s][ base_idx + 2 ];
+                    float fb = full_image_buffer_float[s][ base_idx + 1 ];
+                    
+                    // gamma correction
+                    vec3 col = vec3( sqrtf(fr), sqrtf(fg), sqrtf(fb) );
+                    
+                    unsigned int ir = (unsigned int)( col.r() * 255.99f );
+                    unsigned int ig = (unsigned int)( col.g() * 255.99f );
+                    unsigned int ib = (unsigned int)( col.b() * 255.99f );
+                    
+                    // 0xABGR
+                    *line_buffer_ptr++ = ( 0xff000000 | (ib << 16) | (ig << 8) | (ir << 0) );
+                }
+            }
+            
+            oss.str("");
+            oss.clear();
+            std::string base_filename = o.out_filename.substr( 0, o.out_filename.find_last_of(".") );
+            oss << base_filename << "_" << s << ".png";
+            std::cout << "output: " << oss.str() << "\n";
+            int res = stbi_write_png(
+                oss.str().c_str(),
+                o.nx, o.ny, 4,
+                (void*)int_image_buffer,
+                4*o.nx); // row stride
+            
+            delete [] int_image_buffer;
+        }
+    }
     
     // resolve float buffer
     float one_over_n_samples = 1.0f / o.ns;
@@ -465,9 +512,17 @@ int main( int argc, char **argv )
                 fg += full_image_buffer_float[s][ base_idx + 2 ];
                 fb += full_image_buffer_float[s][ base_idx + 1 ];
             }
-            unsigned int ir = (unsigned int)( fr * 255.99f * one_over_n_samples );
-            unsigned int ig = (unsigned int)( fg * 255.99f * one_over_n_samples );
-            unsigned int ib = (unsigned int)( fb * 255.99f * one_over_n_samples );
+            
+            fr *= one_over_n_samples;
+            fg *= one_over_n_samples;
+            fb *= one_over_n_samples;
+            
+            // gamma correction
+            vec3 col = vec3( sqrtf(fr), sqrtf(fg), sqrtf(fb) );
+            
+            unsigned int ir = (unsigned int)( col.r() * 255.99f );
+            unsigned int ig = (unsigned int)( col.g() * 255.99f );
+            unsigned int ib = (unsigned int)( col.b() * 255.99f );
             
             // 0xABGR
             *line_buffer_ptr++ = ( 0xff000000 | (ib << 16) | (ig << 8) | (ir << 0) );
