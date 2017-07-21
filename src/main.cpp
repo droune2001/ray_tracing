@@ -81,8 +81,10 @@ global std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 #include "thread_pool.h"
 #include "scenes.h"
 
-// NOTE(nfauvet): pgcd(1920,1080) = 120
+// pgcd(1920,1080) = 120
 // 120 = 2*2*2*3*5
+// pgcd(1280,720) = 80
+// 80 = 2*2*2*2*5
 
 vec3 color( const ray &r, hitable *world, int max_depth, int depth )
 {
@@ -168,13 +170,6 @@ struct compute_tile_task : public task
         }
     }
     
-    virtual void showTask() override
-    {
-        //std::unique_lock<std::mutex> g(g_console_mutex);
-        //std::cout << "thread " << "( " << tile_origin_x << ", " << tile_origin_y << ")"
-        //<< " id(" << std::this_thread::get_id() << ") working...\n";
-    }
-    
     int tile_origin_x = 0;
     int tile_origin_y = 0;
     int tile_width = 1;
@@ -232,13 +227,6 @@ struct compute_one_sample_task : public task
         }
     }
     
-    virtual void showTask() override
-    {
-        //std::unique_lock<std::mutex> g(g_console_mutex);
-        //std::cout << "thread " << "( " << tile_origin_x << ", " << tile_origin_y << ")"
-        //<< " id(" << std::this_thread::get_id() << ") working...\n";
-    }
-    
     int image_width = 1;
     int image_height = 1;
     int sub_samples = 1;
@@ -248,6 +236,90 @@ struct compute_one_sample_task : public task
     hitable *world;
     camera *cam;
 };
+
+struct single_pass_task : public task
+{
+    single_pass_task() : task() {}
+    
+    virtual ~single_pass_task() override
+    {
+        std::unique_lock<std::mutex> g(g_console_mutex);
+        std::cout << "Single pass finished\n";
+    }
+    
+    virtual void run() override
+    {
+        for( int j = image_height-1; j >= 0; --j )
+        {
+            float *normal_line_buffer_ptr = normal_buffer + 
+                (image_height - 1 - j) * 3 * image_width;
+            
+            float *depth_line_buffer_ptr = depth_buffer + 
+                (image_height - 1 - j) * 1 * image_width;
+            
+            float *uv_line_buffer_ptr = uv_buffer + 
+                (image_height - 1 - j) * 2 * image_width;
+            
+            for( int i = 0; i < image_width; ++i )
+            {
+                float u = float( i + 0.5f ) / float( image_width );
+                float v = float( j + 0.5f ) / float( image_height );
+                
+                ray r = cam->get_ray( u, v );
+                
+                float depth = 0.0f;
+                vec3 simple_color(0,0,0);
+                vec3 normal(0,0,0);
+                vec3 uv(0,0,0);
+                
+                hit_record rec = {};
+                if ( world->hit( r, 0.001f, FLT_MAX, rec ) )
+                {
+                    ray scattered;
+                    vec3 attenuation;
+                    vec3 emitted = rec.mat_ptr->emitted( rec.u, rec.v, rec.p );
+                    if ( rec.mat_ptr->scatter( r, rec, attenuation, scattered ) )
+                    {
+                        simple_color = emitted + attenuation;
+                    }
+                    
+                    normal = rec.normal; normal.make_unit_vector();
+                    uv = vec3( rec.u, rec.v, 0.0f );
+                    depth = sqrt( dot((rec.p - cam->origin ), ( rec.p - cam->origin ) ));
+                    
+                    if ( depth < *depth_min) *depth_min = depth;
+                    if ( depth > *depth_max) *depth_max = depth;
+                }
+                
+                *depth_line_buffer_ptr++ = depth;
+                
+                *normal_line_buffer_ptr++ = 0.5f * ( normal.x() + 1.0f );
+                *normal_line_buffer_ptr++ = 0.5f * ( normal.y() + 1.0f );
+                *normal_line_buffer_ptr++ = 0.5f * ( normal.z() + 1.0f );
+                
+                *uv_line_buffer_ptr++ = uv.x();
+                *uv_line_buffer_ptr++ = uv.y();
+            }
+        }
+    }
+    
+    int image_width      = 1;
+    int image_height     = 1;
+    float *normal_buffer = nullptr;
+    float *depth_buffer  = nullptr;
+    float *uv_buffer     = nullptr;
+    float *depth_min     = nullptr;
+    float *depth_max     = nullptr;
+    hitable *world       = nullptr;
+    camera *cam          = nullptr;
+};
+
+
+
+
+
+
+
 
 int main( int argc, char **argv )
 {
@@ -354,6 +426,18 @@ int main( int argc, char **argv )
     float **full_image_buffer_float = nullptr;
     buffer_memory_in_bytes += o.ns*4*o.nx*o.ny*sizeof(float);
     
+    float *normal_buffer = nullptr;
+    buffer_memory_in_bytes += 3*o.nx*o.ny*sizeof(float);
+    
+    float *depth_buffer = nullptr;
+    buffer_memory_in_bytes += o.nx*o.ny*sizeof(float);
+    
+    float *uv_buffer = nullptr;
+    buffer_memory_in_bytes += 2*o.nx*o.ny*sizeof(float);
+    
+    float depth_min = 0.0f;
+    float depth_max = 0.0f;
+    
     if ( o.verbose )
     {
         if ( buffer_memory_in_bytes > (1024*1024*1024) ) {
@@ -380,6 +464,9 @@ int main( int argc, char **argv )
     {
         full_image_buffer_float[s] = new float[o.nx * o.ny * 4];
     }
+    normal_buffer = new float[o.nx * o.ny * 3];
+    depth_buffer = new float[o.nx * o.ny * 1];
+    uv_buffer = new float[o.nx * o.ny * 2];
     
     float time0 = 0.0f;
     float time1 = 1.0f;
@@ -425,6 +512,20 @@ int main( int argc, char **argv )
     
     auto time_start = std::chrono::high_resolution_clock::now();
     
+    // pre-pass for single ray info
+    single_pass_task *pre_pass_task = new single_pass_task();
+    pre_pass_task->image_width = o.nx;
+    pre_pass_task->image_height = o.ny;
+    pre_pass_task->normal_buffer = normal_buffer;
+    pre_pass_task->depth_buffer = depth_buffer;
+    pre_pass_task->uv_buffer = uv_buffer;
+    pre_pass_task->depth_min = &depth_min;
+    pre_pass_task->depth_max = &depth_max;
+    pre_pass_task->world = (hitable*)bvh_root;
+    pre_pass_task->cam = &cam;
+    
+    pool->addTask( pre_pass_task );
+    
     // one task per sample
     for ( int i = 0; i < o.ns; ++i )
     {
@@ -447,12 +548,107 @@ int main( int argc, char **argv )
     
     std::cout << "\n";
     
+    // dump separate passes
+    if ( o.passes )
+    {
+        std::ostringstream oss;
+        std::string base_filename = o.out_filename.substr( 0, o.out_filename.find_last_of(".") );
+        
+        // NORMAL
+        for ( int j = o.ny - 1; j >= 0; --j )
+        {
+            unsigned int *line_buffer_ptr = image_buffer + j * o.nx;
+            
+            for ( int i = 0; i < o.nx; ++i )
+            {
+                unsigned int base_idx = 3 * ( j * o.nx + i );
+                float nr = normal_buffer[ base_idx + 3 ];
+                float ng = normal_buffer[ base_idx + 2 ];
+                float nb = normal_buffer[ base_idx + 1 ];
+                
+                unsigned int ir = (unsigned int)( nr * 255.99f );
+                unsigned int ig = (unsigned int)( ng * 255.99f );
+                unsigned int ib = (unsigned int)( nb * 255.99f );
+                
+                // 0xABGR
+                *line_buffer_ptr++ = ( 0xff000000 | (ib << 16) | (ig << 8) | (ir << 0) );
+            }
+        }
+        
+        oss.str("");
+        oss.clear();
+        oss << base_filename << "_NORMAL.png";
+        std::cout << "output: " << oss.str() << "\n";
+        stbi_write_png(
+            oss.str().c_str(),
+            o.nx, o.ny, 4,
+            (void*)image_buffer,
+            4*o.nx); // row stride
+        
+        // DEPTH
+        for ( int j = o.ny - 1; j >= 0; --j )
+        {
+            unsigned int *line_buffer_ptr = image_buffer + j * o.nx;
+            
+            for ( int i = 0; i < o.nx; ++i )
+            {
+                unsigned int base_idx = 1 * ( j * o.nx + i );
+                float full_d = depth_buffer[ base_idx ];
+                float d = (full_d-depth_min)/(depth_max-depth_min);
+                unsigned int ir = (unsigned int)( d * 255.99f );
+                unsigned int ig = ir;
+                unsigned int ib = ir;
+                
+                // 0xABGR
+                *line_buffer_ptr++ = ( 0xff000000 | (ib << 16) | (ig << 8) | (ir << 0) );
+            }
+        }
+        
+        oss.str("");
+        oss.clear();
+        oss << base_filename << "_DEPTH.png";
+        std::cout << "output: " << oss.str() << "\n";
+        stbi_write_png(
+            oss.str().c_str(),
+            o.nx, o.ny, 4,
+            (void*)image_buffer,
+            4*o.nx); // row stride
+        
+        // UV
+        for ( int j = o.ny - 1; j >= 0; --j )
+        {
+            unsigned int *line_buffer_ptr = image_buffer + j * o.nx;
+            
+            for ( int i = 0; i < o.nx; ++i )
+            {
+                unsigned int base_idx = 2 * ( j * o.nx + i );
+                float u = uv_buffer[ base_idx + 1 ];
+                float v = uv_buffer[ base_idx + 0 ];
+                
+                unsigned int ir = (unsigned int)( u * 255.99f );
+                unsigned int ig = (unsigned int)( v * 255.99f );
+                unsigned int ib = 0;
+                
+                // 0xABGR
+                *line_buffer_ptr++ = ( 0xff000000 | (ib << 16) | (ig << 8) | (ir << 0) );
+            }
+        }
+        
+        oss.str("");
+        oss.clear();
+        oss << base_filename << "_UV.png";
+        std::cout << "output: " << oss.str() << "\n";
+        stbi_write_png(
+            oss.str().c_str(),
+            o.nx, o.ny, 4,
+            (void*)image_buffer,
+            4*o.nx); // row stride
+    }
+    
     // dump all sample passes
     if ( o.out_separate )
     {
         std::ostringstream oss;
-        
-        unsigned int *int_image_buffer = new unsigned int[o.nx*o.ny];
         
         for ( int s = 0; s < o.ns; ++s )
         {
@@ -460,7 +656,7 @@ int main( int argc, char **argv )
             
             for ( int j = o.ny - 1; j >= 0; --j )
             {
-                unsigned int *line_buffer_ptr = int_image_buffer + j * o.nx;
+                unsigned int *line_buffer_ptr = image_buffer + j * o.nx;
                 
                 for ( int i = 0; i < o.nx; ++i )
                 {
@@ -490,11 +686,9 @@ int main( int argc, char **argv )
             int res = stbi_write_png(
                 oss.str().c_str(),
                 o.nx, o.ny, 4,
-                (void*)int_image_buffer,
+                (void*)image_buffer,
                 4*o.nx); // row stride
         }
-        
-        delete [] int_image_buffer;
     }
     
     // resolve float buffer
