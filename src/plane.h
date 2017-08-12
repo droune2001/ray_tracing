@@ -73,6 +73,30 @@
          return true;
      }
      
+     virtual float pdf_value( const vec3 &o, const vec3 &v ) const 
+     { 
+         hit_record rec;
+         // si le rayon que tu m'as file me touche bien
+         if ( this->hit( ray(o,v), 0.0001f, FLT_MAX, rec) )
+         {
+             float area = (x1-x0)*(z1-z0);
+             float distance_squared = rec.t * rec.t * v.squared_length();
+             float cosine = fabsf( dot( v, rec.normal ) / v.length() );
+             return distance_squared / ( cosine * area );
+         }
+         else
+         {
+             return 0.0f; 
+         }
+     }
+     
+     // la light genere un point random uniform sur elle meme
+     virtual vec3 random( const vec3 &o ) 
+     { 
+         vec3 random_point = vec3(x0 + RAN01()*(x1-x0), y, z0 + RAN01()*(z1-z0));
+         return random_point - o;
+     }
+     
      material *mat_ptr;
      float x0, x1, z0, z1, y;
  };

@@ -8,32 +8,35 @@
  
  struct material 
  {
-     virtual bool scatter(const ray &r_in, const hit_record &rec, vec3 &attenuation, ray &scattered ) const = 0;
-     virtual vec3 emitted(float u, float v, const vec3 &p) const { return vec3(0,0,0); };
+     virtual bool scatter(const ray &r_in, const hit_record &rec, vec3 &albedo, ray &scattered, float &pdf ) const = 0;
+     virtual float scattering_pdf(const ray &r_in, const hit_record &rec, const ray &scattered) const = 0;
+     virtual vec3 emitted(const ray &r_in, const hit_record &rec, float u, float v, const vec3 &p) const { return vec3(0,0,0); };
  };
  
  struct lambertian : public material
  {
      lambertian( texture *a) : albedo(a) {}
-     virtual bool scatter(const ray &r_in, const hit_record &rec, vec3 &attenuation, ray &scattered) const
+     virtual float scattering_pdf(const ray &r_in, const hit_record &rec, const ray &scattered) const
      {
-         vec3 target = rec.p + rec.normal + random_in_unit_sphere();
-         scattered = ray(rec.p, target-rec.p, r_in.time());
+         float cosine = dot(rec.normal, scattered.direction());
+         if ( cosine < 0.0f) cosine = 0.0f;
+         return cosine / PI;
+     }
+     virtual bool scatter(const ray &r_in, const hit_record &rec, vec3 &alb, ray &scattered, float &pdf) const
+     {
+         //vec3 target = rec.p + rec.normal + random_in_unit_sphere(); // TODO: scatter towards lights
+         //scattered = ray(rec.p, target-rec.p, r_in.time());
+         //alb = albedo->value( rec.u, rec.v, rec.p );
+         //pdf = dot(rec.normal, scattered.direction()) / PI; // cos(theta)/pi
          
-         // texture
-         attenuation = albedo->value( rec.u, rec.v, rec.p );
+         // hemisphere above
+         onb uvw;
+         uvw.build_from_w( rec.normal );
+         vec3 direction = uvw.local( random_cosine_direction() );
+         scattered = ray(rec.p, unit_vector(direction), r_in.time());
+         alb = albedo->value( rec.u, rec.v, rec.p );
+         pdf = dot( uvw.w(), scattered.direction() ) / PI;
          
-         // (u,v) pass
-         //attenuation = vec3( rec.u, rec.v, 0.0f );
-         
-         // normal pass
-         //attenuation = vec3( 
-         //0.5f * ( 1.0f + rec.normal.x() ), 
-         //0.5f * ( 1.0f + rec.normal.y() ),
-         //0.5f * ( 1.0f + rec.normal.z() ) );
-         
-         // NOTE(nfauvet): we could also only scatter with some probability p
-         // and have attenuation be albedo/p
          return true;
      }
      
@@ -54,12 +57,19 @@
          }
      }
      
-     virtual bool scatter(const ray &r_in, const hit_record &rec, vec3 &attenuation, ray &scattered) const
+     virtual float scattering_pdf(const ray &r_in, const hit_record &rec, const ray &scattered) const
+     {
+         return 1.0f;
+     }
+     
+     virtual bool scatter(const ray &r_in, const hit_record &rec, vec3 &attenuation, ray &scattered, float &pdf) const
      {
          // pure reflection, no random
          vec3 reflected = reflect(unit_vector(r_in.direction()), rec.normal);
          scattered = ray(rec.p, reflected + fuzz * random_in_unit_sphere(), r_in.time());
          attenuation = albedo->value( rec.u, rec.v, rec.p );
+         
+         pdf = 1.0f;
          
          // dont scatter at angles > 90 degrees
          return (dot(scattered.direction(), rec.normal) > 0.0f);
@@ -72,7 +82,12 @@
  struct dielectric : public material
  {
      dielectric( float ri ) : ref_idx(ri) {}
-     virtual bool scatter(const ray &r_in, const hit_record &rec, vec3 &attenuation, ray &scattered) const
+     virtual float scattering_pdf(const ray &r_in, const hit_record &rec, const ray &scattered) const
+     {
+         return 1.0f;
+     }
+     
+     virtual bool scatter(const ray &r_in, const hit_record &rec, vec3 &attenuation, ray &scattered, float &pdf) const
      {
          vec3 outward_normal;
          vec3 reflected = reflect(unit_vector(r_in.direction()), rec.normal);
@@ -117,6 +132,8 @@
              scattered = ray(rec.p, refracted, r_in.time());
          }
          
+         pdf = 1.0f;
+         
          return true;
      }
      
@@ -126,14 +143,27 @@
  struct diffuse_light : public material
  {
      diffuse_light(texture *E) : emit(E) {}
-     virtual bool scatter(const ray &r_in, const hit_record &rec, vec3 &attenuation, ray &scattered) const 
+     virtual float scattering_pdf(const ray &r_in, const hit_record &rec, const ray &scattered) const
+     {
+         return 1.0f;
+     }
+     
+     virtual bool scatter(const ray &r_in, const hit_record &rec, vec3 &attenuation, ray &scattered, float &pdf) const 
      { 
+         pdf = 1.0f;
          return false; 
      }
      
-     virtual vec3 emitted(float u, float v, const vec3 &p) const 
+     virtual vec3 emitted( const ray &r_in, const hit_record &rec, float u, float v, const vec3 &p) const 
      { 
-         return emit->value(u,v,p); 
+         //if ( dot( rec.normal, r_in.direction() ) < 0.0f )
+         //{
+         return emit->value( u, v, p );
+         //}
+         //else
+         //{
+         //return vec3(0,0,0);
+         //}
      }
      
      texture *emit;
@@ -142,11 +172,17 @@
  struct isotropic : public material
  {
      isotropic( texture *a ) : albedo(a) {}
-     virtual bool scatter( const ray &r_in, const hit_record &rec, vec3 &attenuation, ray &scattered) const 
+     virtual float scattering_pdf(const ray &r_in, const hit_record &rec, const ray &scattered) const
+     {
+         return 1.0f;
+     }
+     
+     virtual bool scatter( const ray &r_in, const hit_record &rec, vec3 &attenuation, ray &scattered, float &pdf) const 
      { 
          // random scatter from the scattering point
          scattered = ray( rec.p, random_in_unit_sphere() );
          attenuation = albedo->value( rec.u, rec.v, rec.p );
+         pdf = 1.0f;
          return true; 
      }
      

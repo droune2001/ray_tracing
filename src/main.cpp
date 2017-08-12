@@ -70,6 +70,7 @@ global std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 #include "camera.h"
 #include "hitable.h"
 #include "hitable_list.h"
+#include "pdf.h"
 #include "transforms.h"
 #include "bvh.h"
 #include "texture.h"
@@ -91,13 +92,21 @@ vec3 color( const ray &r, hitable *world, int max_depth, int depth )
     hit_record rec = {};
     if (world->hit(r, 0.001f, FLT_MAX, rec))
     {
+        float pdf_val;
         ray scattered;
-        vec3 attenuation;
-        vec3 emitted = rec.mat_ptr->emitted( rec.u, rec.v, rec.p );
-        if ((depth < max_depth) && rec.mat_ptr->scatter(r, rec, attenuation, scattered))
+        vec3 albedo;
+        vec3 emitted = rec.mat_ptr->emitted( r, rec, rec.u, rec.v, rec.p );
+        if ((depth < max_depth) && rec.mat_ptr->scatter(r, rec, albedo, scattered, pdf_val))
         {
-            // recursive
-            return emitted + attenuation * color(scattered, world, max_depth, depth+1);
+            
+            hitable *light_shape = new xz_rect(213,343,227,332,554,0);
+            hitable_pdf p0(light_shape, rec.p);
+            cosine_pdf p1(rec.normal);
+            mixture_pdf p(&p0, &p1);
+            scattered = ray(rec.p, p.generate(), r.time());
+            pdf_val = p.value(scattered.direction());
+            float spdf = rec.mat_ptr->scattering_pdf(r, rec, scattered);
+            return emitted + albedo * spdf * color(scattered, world, max_depth, depth+1) / pdf_val;
         }
         else
         {
@@ -275,12 +284,14 @@ struct single_pass_task : public task
                 hit_record rec = {};
                 if ( world->hit( r, 0.001f, FLT_MAX, rec ) )
                 {
+                    float pdf;
                     ray scattered;
-                    vec3 attenuation;
-                    vec3 emitted = rec.mat_ptr->emitted( rec.u, rec.v, rec.p );
-                    if ( rec.mat_ptr->scatter( r, rec, attenuation, scattered ) )
+                    vec3 albedo;
+                    vec3 emitted = rec.mat_ptr->emitted( r, rec, rec.u, rec.v, rec.p );
+                    if ( rec.mat_ptr->scatter( r, rec, albedo, scattered, pdf ) )
                     {
-                        simple_color = emitted + attenuation;
+                        float spdf = rec.mat_ptr->scattering_pdf( r, rec, scattered );
+                        simple_color = emitted + albedo * spdf / pdf;
                     }
                     
                     normal = rec.normal; normal.make_unit_vector();
@@ -471,28 +482,12 @@ int main( int argc, char **argv )
     float time0 = 0.0f;
     float time1 = 1.0f;
     
-    // camera setup
+    // scene and camera setup
     
-    // cornell camera
-    camera cam( vec3( 278.0f, 278.0f, -800.0f ), vec3( 278.0f, 278.0f, 278.0f ), vec3( 0.0f, 1.0f, 0.0f ), 40.0f, float(o.nx)/float(o.ny), 0.0f, 800.0f, time0, time1 );
-    
-    // mega book2 scene camera
-    //camera cam( vec3( 350.0f, 278.0f, -450.0f ), vec3( 180.0f, 278.0f,  278.0f ), vec3( 0.0f, 1.0f, 0.0f ), 45.0f, float(nx)/float(ny), 0.0f, 800.0f, time0, time1 );
-    
-    /*
-    camera cam(
-        vec3( 0.0f,  0.1f, 1.0f ), 
-        vec3( 0.0f, 17.0f, 0.0f ), 
-        vec3( 0.0f,  1.0f, 0.0f ), 
-        35.0f, 
-        float(o.nx)/float(o.ny), 
-        0.0f, 
-        800.0f,
-        time0, 
-        time1 );
-    */
-    
-    hitable *world = cornell_box();
+    float aspect = float(o.nx)/float(o.ny);
+    camera *cam = nullptr;
+    hitable *world = nullptr;
+    cornell_box( &world, &cam, aspect );
     bvh_node *bvh_root = new bvh_node(
         ((hitable_list*)world)->list,
         ((hitable_list*)world)->list_size,
@@ -522,7 +517,7 @@ int main( int argc, char **argv )
     pre_pass_task->depth_min = &depth_min;
     pre_pass_task->depth_max = &depth_max;
     pre_pass_task->world = (hitable*)bvh_root;
-    pre_pass_task->cam = &cam;
+    pre_pass_task->cam = cam;
     
     pool->addTask( pre_pass_task );
     
@@ -537,7 +532,7 @@ int main( int argc, char **argv )
         task->max_depth = o.bounces;
         task->shared_buffer = full_image_buffer_float[i];
         task->world = (hitable*)bvh_root;
-        task->cam = &cam;
+        task->cam = cam;
         
         pool->addTask( task );
     }

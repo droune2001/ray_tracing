@@ -1,14 +1,37 @@
 #ifndef _RAYTRACER_SCENES_H
 #define _RAYTRACER_SCENES_H
- 
-hitable *mega_big_scene_end_of_book1();
-hitable *mega_big_scene_end_of_book2();
-hitable *simple_scene();
-hitable *another_simple();
-hitable *two_perlin_spheres();
-hitable *cornell_box();
-hitable *cornell_box_volumes();
 
+//hitable *mega_big_scene_end_of_book1();
+//hitable *mega_big_scene_end_of_book2();
+//hitable *simple_scene();
+//hitable *another_simple();
+//hitable *two_perlin_spheres();
+void cornell_box( hitable **scene, camera **cam, float aspect );
+//hitable *cornell_box_volumes();
+
+
+// mega book2 scene camera
+//camera cam( vec3( 350.0f, 278.0f, -450.0f ), vec3( 180.0f, 278.0f,  278.0f ), vec3( 0.0f, 1.0f, 0.0f ), 45.0f, float(nx)/float(ny), 0.0f, 800.0f, time0, time1 );
+
+/*
+camera cam(
+    vec3( 0.0f,  0.1f, 1.0f ), 
+    vec3( 0.0f, 17.0f, 0.0f ), 
+    vec3( 0.0f,  1.0f, 0.0f ), 
+    35.0f, 
+    float(o.nx)/float(o.ny), 
+    0.0f, 
+    800.0f,
+    time0, 
+    time1 );
+*/
+
+
+
+
+
+
+/*
 hitable *mega_big_scene_end_of_book1()
 {
     int n = 500;
@@ -60,8 +83,10 @@ hitable *mega_big_scene_end_of_book1()
     return new hitable_list(list, i);
     
 }
+*/
 
-
+// SIMPLE SCENE
+/*
 hitable *simple_scene()
 {
     int nx, ny, nn;
@@ -79,7 +104,11 @@ hitable *simple_scene()
     list[i++] = new xy_rect(3, 5, 1, 3, -2, new diffuse_light(new constant_texture(vec3(4,4,4))));
     return new hitable_list(list, i);
 }
+*/
 
+// ANOTHER SIMPLE
+
+/*
 hitable *another_simple()
 {
     int l = 0;
@@ -114,7 +143,11 @@ hitable *another_simple()
     }
     return new hitable_list(list, l);
 }
+*/
 
+// TWO PERLIN SPHERES -------------------------------------------------
+
+/*
 hitable *two_perlin_spheres()
 {
     texture *pertex = new noise_texture(2.0f);
@@ -124,8 +157,10 @@ hitable *two_perlin_spheres()
     
     return new hitable_list(list, 2);
 }
+*/
 
-hitable *cornell_box()
+// CORNELL BOX --------------------------------------------------------
+void cornell_box( hitable **scene, camera **cam, float aspect )
 {
     hitable **list = new hitable*[8];
     int i = 0;
@@ -137,6 +172,7 @@ hitable *cornell_box()
     list[i++] = new flip_normals(new yz_rect(0,555,0,555,555, green)); // left
     list[i++] = new yz_rect(0,555,0,555,  0, red);                     // right
     list[i++] = new flip_normals(new xz_rect(0,555,0,555,555, white)); // top
+    //list[i++] = new flip_normals(new xz_rect(213,343,227,332,550, light));               // light
     list[i++] = new xz_rect(213,343,227,332,554, light);               // light
     list[i++] = new xz_rect(0,555,0,555,0, white);                     // bottom
     list[i++] = new flip_normals(new xy_rect(0,555,0,555,555, white)); // back
@@ -144,9 +180,16 @@ hitable *cornell_box()
     list[i++] = new translate( new rotate_y ( new box(vec3(0,0,0), vec3(165, 165, 165), white), -18 ), vec3( 130, 0,  65 ));  // small box
     list[i++] = new translate( new rotate_y ( new box(vec3(0,0,0), vec3(165, 330, 165), white),  15 ), vec3( 265, 0, 295 )); // big box
     
-    return new hitable_list(list, i);
+    *scene = new hitable_list( list, i );
+    *cam = new camera(vec3( 278.0f, 278.0f, -800.0f ), 
+                      vec3( 278.0f, 278.0f, 278.0f ), 
+                      vec3( 0.0f, 1.0f, 0.0f ), 
+                      40.0f, aspect, 0.0f, 800.0f, 0.0f, 1.0f );
 }
 
+// CORNELL BOX VOLUMES --------------------------------------------------
+
+/*
 hitable *cornell_box_volumes()
 {
     hitable **list = new hitable*[8];
@@ -173,7 +216,11 @@ hitable *cornell_box_volumes()
     
     return new hitable_list(list, i);
 }
+*/
 
+// MEGA BIG SCENE END OF BOOK 2 -----------------------------------------
+
+/*
 hitable *mega_big_scene_end_of_book2()
 {
     hitable **list = new hitable*[30];
@@ -218,7 +265,7 @@ hitable *mega_big_scene_end_of_book2()
         )
         )
         );
-    
+        
     // glass sphere
     list[l++] = new sphere(vec3(260, 150, 45), 50, new dielectric(1.5f));
     
@@ -255,5 +302,6 @@ hitable *mega_big_scene_end_of_book2()
     
     return new hitable_list(list, l);
 }
+*/
 
 #endif //_RAYTRACER_SCENES_H
