@@ -168,6 +168,7 @@ void cornell_box( hitable **scene, camera **cam, float aspect )
     material *white = new lambertian( new constant_texture(vec3(0.73f,0.73f,0.73f)));
     material *green = new lambertian( new constant_texture(vec3(0.12f,0.45f,0.15f)));
     material *light = new diffuse_light( new constant_texture(vec3(15,15,15)));
+    material *aluminium = new metal( new constant_texture(vec3( 0.8f, 0.85f, 0.88f )), 0.0f );
     
     list[i++] = new flip_normals(new yz_rect(0,555,0,555,555, green)); // left
     list[i++] = new yz_rect(0,555,0,555,  0, red);                     // right
@@ -178,7 +179,7 @@ void cornell_box( hitable **scene, camera **cam, float aspect )
     list[i++] = new flip_normals(new xy_rect(0,555,0,555,555, white)); // back
     
     list[i++] = new translate( new rotate_y ( new box(vec3(0,0,0), vec3(165, 165, 165), white), -18 ), vec3( 130, 0,  65 ));  // small box
-    list[i++] = new translate( new rotate_y ( new box(vec3(0,0,0), vec3(165, 330, 165), white),  15 ), vec3( 265, 0, 295 )); // big box
+    list[i++] = new translate( new rotate_y ( new box(vec3(0,0,0), vec3(165, 330, 165), aluminium),  15 ), vec3( 265, 0, 295 )); // big box
     
     *scene = new hitable_list( list, i );
     *cam = new camera(vec3( 278.0f, 278.0f, -800.0f ), 

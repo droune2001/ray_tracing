@@ -87,26 +87,33 @@ global std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 // pgcd(1280,720) = 80
 // 80 = 2*2*2*2*5
 
-vec3 color( const ray &r, hitable *world, int max_depth, int depth )
+vec3 color( const ray &r, hitable *world, hitable *light_shape, int max_depth, int depth )
 {
-    hit_record rec = {};
-    if (world->hit(r, 0.001f, FLT_MAX, rec))
+    hit_record hrec = {};
+    if ( world->hit( r, 0.001f, FLT_MAX, hrec ) )
     {
-        float pdf_val;
-        ray scattered;
-        vec3 albedo;
-        vec3 emitted = rec.mat_ptr->emitted( r, rec, rec.u, rec.v, rec.p );
-        if ((depth < max_depth) && rec.mat_ptr->scatter(r, rec, albedo, scattered, pdf_val))
+        scatter_record srec = {};
+        vec3 emitted = hrec.mat_ptr->emitted( r, hrec, hrec.u, hrec.v, hrec.p );
+        if ( ( depth < max_depth ) && hrec.mat_ptr->scatter( r, hrec, srec ) )
         {
-            
-            hitable *light_shape = new xz_rect(213,343,227,332,554,0);
-            hitable_pdf p0(light_shape, rec.p);
-            cosine_pdf p1(rec.normal);
-            mixture_pdf p(&p0, &p1);
-            scattered = ray(rec.p, p.generate(), r.time());
-            pdf_val = p.value(scattered.direction());
-            float spdf = rec.mat_ptr->scattering_pdf(r, rec, scattered);
-            return emitted + albedo * spdf * color(scattered, world, max_depth, depth+1) / pdf_val;
+            if ( srec.is_specular )
+            {
+                // no emitted? no pdf?
+                return srec.albedo * color( srec.specular_ray, world, light_shape, max_depth, depth + 1 );
+            }
+            else
+            {
+                //hitable *light_shape = new xz_rect(213,343,227,332,554,0);
+                hitable_pdf plight( light_shape, hrec.p );
+                mixture_pdf p( &plight, srec.pdf_ptr );
+                ray scattered = ray( hrec.p, p.generate(), r.time() );
+                float pdf_val = p.value( scattered.direction() );
+                delete srec.pdf_ptr; // free memory...
+                float spdf = hrec.mat_ptr->scattering_pdf( r, hrec, scattered );
+                return emitted + 
+                    srec.albedo * spdf * color( scattered, world, light_shape, max_depth, depth + 1 ) 
+                    / pdf_val;
+            }
         }
         else
         {
@@ -161,7 +168,7 @@ struct compute_tile_task : public task
                     float v = float(tile_origin_y + j + RAN01()) / float(image_height);
                     
                     ray r = cam->get_ray(u,v);
-                    col += color(r, world, max_depth, 0);
+                    col += color(r, world, light_shape, max_depth, 0);
                 }
                 // resolve AA
                 col /= (float)samples;
@@ -189,6 +196,7 @@ struct compute_tile_task : public task
     int max_depth;
     unsigned int *shared_buffer;
     hitable *world;
+    hitable *light_shape;
     camera *cam;
 };
 
@@ -223,7 +231,7 @@ struct compute_one_sample_task : public task
                     float v = float( j + RAN01() ) / float( image_height );
                     
                     ray r = cam->get_ray( u, v );
-                    col += color( r, world, max_depth, 0 );
+                    col += color( r, world, light_shape, max_depth, 0 );
                 }
                 col /= (float)sub_samples;
                 
@@ -243,6 +251,7 @@ struct compute_one_sample_task : public task
     int max_depth;
     float *shared_buffer;
     hitable *world;
+    hitable *light_shape;
     camera *cam;
 };
 
@@ -258,17 +267,19 @@ struct single_pass_task : public task
     
     virtual void run() override
     {
+        // TODO(nfauvet): rewrite according to archi changes
+        /*
         for( int j = image_height-1; j >= 0; --j )
         {
             float *normal_line_buffer_ptr = normal_buffer + 
                 (image_height - 1 - j) * 3 * image_width;
-            
+                
             float *depth_line_buffer_ptr = depth_buffer + 
                 (image_height - 1 - j) * 1 * image_width;
-            
+                
             float *uv_line_buffer_ptr = uv_buffer + 
                 (image_height - 1 - j) * 2 * image_width;
-            
+                
             for( int i = 0; i < image_width; ++i )
             {
                 float u = float( i + 0.5f ) / float( image_width );
@@ -312,7 +323,9 @@ struct single_pass_task : public task
                 *uv_line_buffer_ptr++ = uv.y();
             }
         }
+        */
     }
+    
     
     int image_width      = 1;
     int image_height     = 1;
@@ -322,6 +335,7 @@ struct single_pass_task : public task
     float *depth_min     = nullptr;
     float *depth_max     = nullptr;
     hitable *world       = nullptr;
+    hitable *light_shape = nullptr;
     camera *cam          = nullptr;
 };
 
@@ -488,6 +502,8 @@ int main( int argc, char **argv )
     camera *cam = nullptr;
     hitable *world = nullptr;
     cornell_box( &world, &cam, aspect );
+    // TODO(nfauvet): build function should return a list of emitting shapes
+    hitable *light_shape = new xz_rect(213,343,227,332,554,0); 
     bvh_node *bvh_root = new bvh_node(
         ((hitable_list*)world)->list,
         ((hitable_list*)world)->list_size,
@@ -517,6 +533,7 @@ int main( int argc, char **argv )
     pre_pass_task->depth_min = &depth_min;
     pre_pass_task->depth_max = &depth_max;
     pre_pass_task->world = (hitable*)bvh_root;
+    pre_pass_task->light_shape = light_shape;
     pre_pass_task->cam = cam;
     
     pool->addTask( pre_pass_task );
@@ -532,6 +549,7 @@ int main( int argc, char **argv )
         task->max_depth = o.bounces;
         task->shared_buffer = full_image_buffer_float[i];
         task->world = (hitable*)bvh_root;
+        task->light_shape = light_shape;
         task->cam = cam;
         
         pool->addTask( task );
