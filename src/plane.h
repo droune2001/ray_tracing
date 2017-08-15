@@ -91,7 +91,7 @@
      }
      
      // la light genere un point random uniform sur elle meme
-     virtual vec3 random( const vec3 &o ) 
+     virtual vec3 random( const vec3 &o ) const
      { 
          vec3 random_point = vec3(x0 + RAN01()*(x1-x0), y, z0 + RAN01()*(z1-z0));
          return random_point - o;

@@ -5,6 +5,7 @@
  "w,width"       "Output image width"              "1920"
  "h,height"      "Output image height"             "1080"
          "s,samples"     "Number of samples per pixel"     "300"
+         "S,sub-samples" "Number of sub-samples per thread" "1"
          "r,recurse"     "Number of bounces"               "1"       "50"
          "t,threads"     "Number of threads"               "1"
          "tw"            "Tile width"                      "1"
@@ -87,7 +88,7 @@ global std::uniform_real_distribution<float> distribution(0.0f,1.0f);
 // pgcd(1280,720) = 80
 // 80 = 2*2*2*2*5
 
-vec3 color( const ray &r, hitable *world, hitable *light_shape, int max_depth, int depth )
+vec3 color( const ray &r, hitable *world, hitable *important_hitables, int max_depth, int depth )
 {
     hit_record hrec = {};
     if ( world->hit( r, 0.001f, FLT_MAX, hrec ) )
@@ -99,19 +100,18 @@ vec3 color( const ray &r, hitable *world, hitable *light_shape, int max_depth, i
             if ( srec.is_specular )
             {
                 // no emitted? no pdf?
-                return srec.albedo * color( srec.specular_ray, world, light_shape, max_depth, depth + 1 );
+                return srec.albedo * color( srec.specular_ray, world, important_hitables, max_depth, depth + 1 );
             }
             else
             {
-                //hitable *light_shape = new xz_rect(213,343,227,332,554,0);
-                hitable_pdf plight( light_shape, hrec.p );
-                mixture_pdf p( &plight, srec.pdf_ptr );
+                hitable_pdf p_important( important_hitables, hrec.p );
+                mixture_pdf p( &p_important, srec.pdf_ptr );
                 ray scattered = ray( hrec.p, p.generate(), r.time() );
                 float pdf_val = p.value( scattered.direction() );
                 delete srec.pdf_ptr; // free memory...
                 float spdf = hrec.mat_ptr->scattering_pdf( r, hrec, scattered );
                 return emitted + 
-                    srec.albedo * spdf * color( scattered, world, light_shape, max_depth, depth + 1 ) 
+                    srec.albedo * spdf * color( scattered, world, important_hitables, max_depth, depth + 1 ) 
                     / pdf_val;
             }
         }
@@ -168,7 +168,7 @@ struct compute_tile_task : public task
                     float v = float(tile_origin_y + j + RAN01()) / float(image_height);
                     
                     ray r = cam->get_ray(u,v);
-                    col += color(r, world, light_shape, max_depth, 0);
+                    col += color(r, world, important_hitables, max_depth, 0);
                 }
                 // resolve AA
                 col /= (float)samples;
@@ -196,7 +196,7 @@ struct compute_tile_task : public task
     int max_depth;
     unsigned int *shared_buffer;
     hitable *world;
-    hitable *light_shape;
+    hitable *important_hitables;
     camera *cam;
 };
 
@@ -231,7 +231,7 @@ struct compute_one_sample_task : public task
                     float v = float( j + RAN01() ) / float( image_height );
                     
                     ray r = cam->get_ray( u, v );
-                    col += color( r, world, light_shape, max_depth, 0 );
+                    col += de_nan( color( r, world, important_hitables, max_depth, 0 ) );
                 }
                 col /= (float)sub_samples;
                 
@@ -251,7 +251,7 @@ struct compute_one_sample_task : public task
     int max_depth;
     float *shared_buffer;
     hitable *world;
-    hitable *light_shape;
+    hitable *important_hitables;
     camera *cam;
 };
 
@@ -335,7 +335,7 @@ struct single_pass_task : public task
     float *depth_min     = nullptr;
     float *depth_max     = nullptr;
     hitable *world       = nullptr;
-    hitable *light_shape = nullptr;
+    hitable *important_hitables = nullptr;
     camera *cam          = nullptr;
 };
 
@@ -353,7 +353,7 @@ int main( int argc, char **argv )
         ( "w,width",       "Output image width", cxxopts::value<int>()->default_value( "1920" ) )
         ( "h,height",      "Output image height", cxxopts::value<int>()->default_value( "1080" ) )
         ( "s,samples",     "Number of samples per pixel", cxxopts::value<int>()->default_value( "256" ) )
-        ( "S,sub-samples", "Number of sub-samples per thread", cxxopts::value<int>()->default_value( "8" ) )
+        ( "S,sub-samples", "Number of sub-samples per thread", cxxopts::value<int>()->default_value( "1" ) )
         ( "r,recurse",     "Number of bounces", cxxopts::value<int>()->default_value( "1" )->implicit_value( "50" ) )
         ( "t,threads",     "Number of threads", cxxopts::value<int>()->default_value( "1" ) )
         ( "tw",            "Tile width", cxxopts::value<int>()->default_value( "1" ) )
@@ -501,9 +501,10 @@ int main( int argc, char **argv )
     float aspect = float(o.nx)/float(o.ny);
     camera *cam = nullptr;
     hitable *world = nullptr;
-    cornell_box( &world, &cam, aspect );
+    hitable *important_hitables = nullptr;
+    cornell_box( &world, &important_hitables, &cam, aspect );
     // TODO(nfauvet): build function should return a list of emitting shapes
-    hitable *light_shape = new xz_rect(213,343,227,332,554,0); 
+    //hitable *light_shape = new xz_rect(213,343,227,332,554,0);
     bvh_node *bvh_root = new bvh_node(
         ((hitable_list*)world)->list,
         ((hitable_list*)world)->list_size,
@@ -533,7 +534,7 @@ int main( int argc, char **argv )
     pre_pass_task->depth_min = &depth_min;
     pre_pass_task->depth_max = &depth_max;
     pre_pass_task->world = (hitable*)bvh_root;
-    pre_pass_task->light_shape = light_shape;
+    pre_pass_task->important_hitables = important_hitables;
     pre_pass_task->cam = cam;
     
     pool->addTask( pre_pass_task );
@@ -549,7 +550,7 @@ int main( int argc, char **argv )
         task->max_depth = o.bounces;
         task->shared_buffer = full_image_buffer_float[i];
         task->world = (hitable*)bvh_root;
-        task->light_shape = light_shape;
+        task->important_hitables = important_hitables;
         task->cam = cam;
         
         pool->addTask( task );

@@ -181,6 +181,15 @@ inline vec3 random_cosine_direction()
     return vec3( x, y, z );
 }
 
+inline vec3 de_nan( const vec3 &in )
+{
+    vec3 tmp = in;
+    if ( !( tmp[0] == tmp[0] ) ) tmp[0] = 0.0f;
+    if ( !( tmp[1] == tmp[1] ) ) tmp[1] = 0.0f;
+    if ( !( tmp[2] == tmp[2] ) ) tmp[2] = 0.0f;
+    return tmp;
+}
+
 // ---------------------------------------------
 // ortho normal basis
 struct onb

@@ -6,7 +6,7 @@
 //hitable *simple_scene();
 //hitable *another_simple();
 //hitable *two_perlin_spheres();
-void cornell_box( hitable **scene, camera **cam, float aspect );
+void cornell_box( hitable **scene, hitable **important_hitables, camera **cam, float aspect );
 //hitable *cornell_box_volumes();
 
 
@@ -160,27 +160,36 @@ hitable *two_perlin_spheres()
 */
 
 // CORNELL BOX --------------------------------------------------------
-void cornell_box( hitable **scene, camera **cam, float aspect )
+void cornell_box( hitable **scene, hitable **important_hitables, camera **cam, float aspect )
 {
     hitable **list = new hitable*[8];
+    hitable **imp_list = new hitable*[2];
+    
     int i = 0;
     material *red   = new lambertian( new constant_texture(vec3(0.65f,0.05f,0.05f)));
     material *white = new lambertian( new constant_texture(vec3(0.73f,0.73f,0.73f)));
     material *green = new lambertian( new constant_texture(vec3(0.12f,0.45f,0.15f)));
     material *light = new diffuse_light( new constant_texture(vec3(15,15,15)));
     material *aluminium = new metal( new constant_texture(vec3( 0.8f, 0.85f, 0.88f )), 0.0f );
+    material *glass = new dielectric( 1.5f );
     
     list[i++] = new flip_normals(new yz_rect(0,555,0,555,555, green)); // left
     list[i++] = new yz_rect(0,555,0,555,  0, red);                     // right
     list[i++] = new flip_normals(new xz_rect(0,555,0,555,555, white)); // top
     //list[i++] = new flip_normals(new xz_rect(213,343,227,332,550, light));               // light
     list[i++] = new xz_rect(213,343,227,332,554, light);               // light
+    imp_list[0] = list[i-1];
     list[i++] = new xz_rect(0,555,0,555,0, white);                     // bottom
     list[i++] = new flip_normals(new xy_rect(0,555,0,555,555, white)); // back
     
-    list[i++] = new translate( new rotate_y ( new box(vec3(0,0,0), vec3(165, 165, 165), white), -18 ), vec3( 130, 0,  65 ));  // small box
+    // small box
+    //list[i++] = new translate( new rotate_y ( new box(vec3(0,0,0), vec3(165, 165, 165), white), -18 ), vec3( 130, 0,  65 ));  // small box
+    list[i++] = new sphere( vec3( 190.0f, 90.0f, 190.0f ), 90.0f, glass );
+    imp_list[1] = list[i-1];
+    // big box
     list[i++] = new translate( new rotate_y ( new box(vec3(0,0,0), vec3(165, 330, 165), aluminium),  15 ), vec3( 265, 0, 295 )); // big box
     
+    *important_hitables = new hitable_list( imp_list, 2 );
     *scene = new hitable_list( list, i );
     *cam = new camera(vec3( 278.0f, 278.0f, -800.0f ), 
                       vec3( 278.0f, 278.0f, 278.0f ), 

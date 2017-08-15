@@ -81,7 +81,6 @@
      float fuzz = 1.0f;
  };
  
-#if 0
  struct dielectric : public material
  {
      dielectric( float ri ) : ref_idx(ri) {}
@@ -90,29 +89,32 @@
          return 1.0f;
      }
      
-     virtual bool scatter(const ray &r_in, const hit_record &rec, vec3 &attenuation, ray &scattered, float &pdf) const
+     virtual bool scatter(const ray &r_in, const hit_record &hrec, scatter_record &srec ) const
      {
          vec3 outward_normal;
-         vec3 reflected = reflect(unit_vector(r_in.direction()), rec.normal);
+         vec3 reflected = reflect(unit_vector(r_in.direction()), hrec.normal);
          float ni_over_nt;
-         attenuation = vec3(1.0f, 1.0f, 1.0f); // white glass
+         
+         srec.is_specular = true;
+         srec.albedo = vec3(1.0f, 1.0f, 1.0f); // white glass
+         
          vec3 refracted;
          float reflect_prob;
          float cosine;
          
          // interior or exterior??
-         if (dot(r_in.direction(), rec.normal) > 0.0f)
+         if (dot(r_in.direction(), hrec.normal) > 0.0f)
          {
-             outward_normal = -rec.normal;
+             outward_normal = -hrec.normal;
              ni_over_nt = ref_idx;
-             cosine = ref_idx * dot(r_in.direction(), rec.normal) / r_in.direction().length(); 
+             cosine = ref_idx * dot(r_in.direction(), hrec.normal) / r_in.direction().length(); 
          }
          else // exterior
          {
-             outward_normal = rec.normal;
+             outward_normal = hrec.normal;
              ni_over_nt = 1.0f / ref_idx;
              // dot(N,L)
-             cosine = -dot(r_in.direction(), rec.normal) / r_in.direction().length(); 
+             cosine = -dot(r_in.direction(), hrec.normal) / r_in.direction().length(); 
          }
          
          
@@ -125,24 +127,25 @@
              reflect_prob = 1.0f;
          }
          
+         srec.is_specular = true;
+         
          // no blending yet between reflect and refract, just a proba.
          if (distribution(generator) < reflect_prob)
          {
-             scattered = ray(rec.p, reflected, r_in.time());
+             srec.specular_ray = ray( hrec.p, reflected, r_in.time());
          }
          else
          {
-             scattered = ray(rec.p, refracted, r_in.time());
+             srec.specular_ray= ray( hrec.p, refracted, r_in.time());
          }
          
-         pdf = 1.0f;
+         srec.pdf_ptr = nullptr;
          
          return true;
      }
      
      float ref_idx = 1.0f;
  };
-#endif
  
  struct diffuse_light : public material
  {

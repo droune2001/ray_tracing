@@ -10,6 +10,8 @@
      virtual bool hit(const ray &r, float t_min, float t_max, hit_record &rec ) const override;
      virtual bool bounding_box( float t0, float t1, aabb &box) const override;
      
+     virtual float pdf_value( const vec3 &o, const vec3 &v ) const override;
+     virtual vec3 random( const vec3 &o ) const override;
      
      material *mat = nullptr;
      vec3 center = vec3(0,0,0);
@@ -62,6 +64,52 @@
                 center + vec3(radius, radius, radius));
      return true;
  }
+ 
+ float sphere::pdf_value( const vec3 &o, const vec3 &v ) const
+ {
+     hit_record hrec = {};
+     // find where the ray hit me
+     if ( this->hit( ray( o, v ), 0.001f, FLT_MAX, hrec ) )
+     {
+         // encompassing cone of the sphere viewd from "o"
+         float cos_theta_max = sqrtf( 1.0f - radius * radius / ( center - o ).squared_length() );
+         float solid_angle = 2.0f * PI * ( 1.0f - cos_theta_max );
+         return 1.0f / solid_angle; // hitting that sphere had that pdf_value
+     }
+     else
+     {
+         return 0.0f;
+     }
+ }
+ 
+ inline vec3 random_to_sphere( float radius, float distance_squared )
+ {
+     float r1 = RAN01();
+     float r2 = RAN01();
+     float z = 1.0f + r2 * ( sqrtf( 1.0f - radius * radius / distance_squared ) - 1.0f );
+     float phi = 2.0f * PI * r1;
+     float x = cosf( phi ) * sqrtf( 1.0f - z * z );
+     float y = sinf( phi ) * sqrtf( 1.0f - z * z );
+     return vec3( x, y, z );
+ }
+ 
+ vec3 sphere::random( const vec3 &o ) const
+ {
+     vec3 direction = center - o;
+     float distance_squared = direction.squared_length();
+     onb uvw;
+     uvw.build_from_w( direction );
+     return uvw.local( random_to_sphere( radius, distance_squared ) );
+ }
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
  
  // can derive from sphere
  class moving_sphere : public hitable
